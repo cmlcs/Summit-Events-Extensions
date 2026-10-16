@@ -1,0 +1,48 @@
+{
+  "orgName": "Summit-Events-Extensions - Dev",
+  "edition": "Developer",
+  "features": [
+    "Communities",
+    "Sites",
+    "ForceComPlatform",
+    "EinsteinGPTForDevelopers",
+    "MarketingCloud",
+    "CustomerDataPlatform",
+    "CustomerDataPlatformLite",
+    "EnableSetPasswordInApi"
+  ],
+  "settings": {
+    "lightningExperienceSettings": {
+      "enableS1DesktopEnabled": true
+    },
+    "chatterSettings": {
+      "enableChatter": true
+    },
+    "userManagementSettings": {
+      "enableNewProfileUI": true
+    },
+    "securitySettings": {
+      "enableAdminLoginAsAnyUser": true,
+      "enableAuditFieldsInactiveOwner": true,
+      "sessionSettings": {
+        "forceRelogin": false
+      }
+    },
+    "languageSettings": {
+      "enableTranslationWorkbench": true
+    },
+    "experienceBundleSettings": {
+      "enableExperienceBundleMetadata": true
+    },
+    "communitiesSettings": {
+      "enableNetworksEnabled": true,
+      "enableOotbProfExtUserOpsEnable": true
+    },
+    "customerDataPlatformSettings": {
+      "enableCustomerDataPlatform": true
+    },
+    "mobileSettings": {
+      "enableS1EncryptedStoragePref2": false
+    }
+  }
+}
