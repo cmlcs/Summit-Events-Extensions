@@ -88,7 +88,7 @@ No architectural decisions are recorded as accepted in this initial pack.
   - Blocking uses per-record `addError`. Data Loader and partial-success imports save the other members; callers that insert with all-or-none (some Flows and Apex) fail the whole batch.
   - The error message shown to admins must not reveal donor details beyond what the user can already see.
 - **Affected stories:** Sprint board US-05 "Prevent duplicate Gala registrations" (context pack US-03, criterion 4); US-02 (membership policy); US-07 (status reconciliation).
-- **Owner / approver:** TBD (proposed by Peter; for review by the story team, Kata and Andre).
+- **Owner / approver:** @Peter-vdmeij
 - **Evidence:** Sandbox metadata review 2026-10-19: `summit__Summit_Events_Registration__c` has no Campaign or Campaign Member link and no unique field.
 
 ## How to add a decision
