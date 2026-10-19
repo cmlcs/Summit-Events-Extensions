@@ -8,10 +8,10 @@
  * The guarantee comes from the unique External Id field Invitation_Key__c; the queries in this class
  * only make the common path cheap and let existing (e.g. public form) Registrations be adopted.
  *
- * Intended use by the Campaign Member -> Registration automation:
- *   1. results = resolve(requests)                  find + adopt existing Registrations
+ * Intended use by the Campaign Member -> Registration automation (both calls keyed by Campaign Member Id):
+ *   1. resolve(requests)                          find + adopt existing Registrations
  *   2. build Registrations for NEW_REGISTRATION_NEEDED results
- *   3. insertRegistrations(newRegistrations)         race-safe insert; duplicates come back as EXISTING_FOUND
+ *   3. insertRegistrations(newRegistrationsByCmId) race-safe insert; duplicates come back as EXISTING_FOUND
  * What happens to the Campaign Member on EXISTING_FOUND is the caller's policy (see DEC-007).
  *
  * without sharing + SYSTEM_MODE: duplicate detection must see every Registration of the Event Instance and
@@ -75,11 +75,18 @@ public without sharing class InvitationRegistrationDedupe {
 
     /**
      * Finds existing Registrations and stamps the invitation key on adopted ones that do not have it yet.
+     * Every request must carry a unique Campaign Member Id; results are keyed by it.
      */
-    public static List<Result> resolve(List<Request> requests) {
+    public static Map<Id, Result> resolve(List<Request> requests) {
+        Set<Id> campaignMemberIds = new Set<Id>();
+        for (Request req : requests) {
+            if (req == null || req.campaignMemberId == null || !campaignMemberIds.add(req.campaignMemberId)) {
+                throw new InvitationProcessingException('Every invitation request needs a unique Campaign Member Id.');
+            }
+        }
         List<Result> results = findExisting(requests);
         adoptExisting(results);
-        return results;
+        return keyByCampaignMember(results);
     }
 
     /**
@@ -179,16 +186,20 @@ public without sharing class InvitationRegistrationDedupe {
      * not roll back the batch. A unique-key violation (a concurrent or repeated run got there first) is
      * returned as EXISTING_FOUND with the winning Registration; other errors as FAILED.
      * Registrations without a Contact or Lead are inserted without a key (outcome CREATED).
+     * Input and results are keyed by the Campaign Member Id the Registration is created for.
      */
-    public static List<Result> insertRegistrations(List<summit__Summit_Events_Registration__c> registrations) {
+    public static Map<Id, Result> insertRegistrations(Map<Id, summit__Summit_Events_Registration__c> registrationsByCampaignMemberId) {
+        List<summit__Summit_Events_Registration__c> registrations = new List<summit__Summit_Events_Registration__c>();
         List<Result> results = new List<Result>();
-        for (summit__Summit_Events_Registration__c reg : registrations) {
-            if (reg.Id != null || reg.summit__Event_Instance__c == null) {
-                throw new InvitationProcessingException('insertRegistrations only accepts new Registrations with an Event Instance.');
+        for (Id campaignMemberId : registrationsByCampaignMemberId.keySet()) {
+            summit__Summit_Events_Registration__c reg = registrationsByCampaignMemberId.get(campaignMemberId);
+            if (campaignMemberId == null || reg == null || reg.Id != null || reg.summit__Event_Instance__c == null) {
+                throw new InvitationProcessingException('insertRegistrations only accepts new Registrations with an Event Instance, keyed by Campaign Member Id.');
             }
-            Result res = new Result(new Request(reg.summit__Event_Instance__c, reg.summit__Contact__c, reg.summit__Lead__c, null));
+            Result res = new Result(new Request(reg.summit__Event_Instance__c, reg.summit__Contact__c, reg.summit__Lead__c, campaignMemberId));
             res.registration = reg;
             reg.Invitation_Key__c = res.invitationKey;
+            registrations.add(reg);
             results.add(res);
         }
 
@@ -207,7 +218,7 @@ public without sharing class InvitationRegistrationDedupe {
             }
         }
         if (duplicateKeys.isEmpty()) {
-            return results;
+            return keyByCampaignMember(results);
         }
 
         Map<String, summit__Summit_Events_Registration__c> winnersByKey = new Map<String, summit__Summit_Events_Registration__c>();
@@ -233,7 +244,15 @@ public without sharing class InvitationRegistrationDedupe {
                 res.outcome = Outcome.FAILED;
             }
         }
-        return results;
+        return keyByCampaignMember(results);
+    }
+
+    private static Map<Id, Result> keyByCampaignMember(List<Result> results) {
+        Map<Id, Result> resultsByCampaignMemberId = new Map<Id, Result>();
+        for (Result res : results) {
+            resultsByCampaignMemberId.put(res.request.campaignMemberId, res);
+        }
+        return resultsByCampaignMemberId;
     }
 
     /**
