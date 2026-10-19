@@ -1,58 +1,46 @@
-# Salesforce DX Project
+# Amsterdam Community Sprint — AI Context Pack
 
-Salesforce DX is a development approach that brings source-driven development, team collaboration, and continuous integration to the Salesforce Platform. Instead of working directly in an org through a web browser, you work with metadata as source files in a local DX project, track changes in version control, and deploy through automated processes.
+**Dates:** 19–20 October 2026  
+**Project:** [Summit Events App](https://github.com/SFDO-Community/Summit-Events-App)  
+**Focus:** Targeted invitations using Salesforce Campaigns and Campaign Members
 
-This project template gets you started with the tools and structure you need to build Salesforce applications using source control, scratch orgs, and the Salesforce CLI.
+## Purpose
 
-## Prerequisites
+These six Markdown files give participants using different AI assistants a shared understanding of the Sprint. They are **planning context**, not a substitute for inspecting the current source code. The repository and its current branch are authoritative for implementation details; the Sprint board is authoritative for work status.
 
-Before you start, make sure you have:
+## Quick start (5–10 minutes)
 
-- **Salesforce CLI** - Download from [developer.salesforce.com/tools/salesforcecli](https://developer.salesforce.com/tools/salesforcecli). See [Install Salesforce CLI](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_install_cli.htm) for details.
-- **VS Code with Salesforce Extension Pack** - See [Installation Instructions](https://developer.salesforce.com/docs/platform/sfvscode-extensions/guide/install.html) for details. Includes the Agentforce Vibes extension.
-- **A development org** - Sign up for a free Developer Edition org [here](https://developer.salesforce.com/signup).
-- **Dev Hub enabled** (optional, required to create scratch orgs) - You can enable Dev Hub in your development org under Setup > Dev Hub.  See [Provide Developers Access to Salesforce DX Tools](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_setup_dx_tools.htm).
+1. Download this folder and open `SPRINT-GOALS.md`, `SUMMIT-EVENTS.md`, and `USER-STORIES.md`.
+2. Add all six files to a ChatGPT Project, Claude Project, or another AI tool that supports file uploads. Alternatively, paste the relevant files into a conversation.
+3. For a coding assistant, open a local clone of the [Summit Events App](https://github.com/SFDO-Community/Summit-Events-App) in your IDE and copy `AGENTS.md` into the workspace **only if appropriate for your tool and team workflow**. Avoid committing it to the upstream project without agreement.
+4. Ask your assistant: **“Read these files. Summarize the Sprint objective, separate existing functionality from proposed functionality, and list the uncertainties to verify before implementing US-03.”**
+5. Choose a user story and confirm its owner, scope, dependencies, and acceptance criteria with the team before changing code.
 
-## Project Structure
+## File guide
 
-Your DX project follows this structure:
+| File | What it contains |
+| --- | --- |
+| `README.md` | Onboarding and how to use this pack |
+| `SPRINT-GOALS.md` | Annual gala scenario, scope, outcomes, and working tracks |
+| `SUMMIT-EVENTS.md` | Source-grounded application overview and technical discovery checklist |
+| `USER-STORIES.md` | Proposed epic and seven user stories with acceptance criteria |
+| `AGENTS.md` | Portable instructions for AI assistants |
+| `SPRINT-DECISIONS.md` | Shared architectural decisions and open questions |
 
-- **`force-app/main/default/`** - Your metadata source files live in this default package directory. You can configure additional package directories in the `sfdx-project.json` file.
-- **`config/`** - Scratch org definitions and project settings
-- **`scripts/`** - Automation scripts for common tasks
-- **`sfdx-project.json`** - Project manifest that defines package directories, namespace, API version, and other project-level settings
+## How to work with AI
 
-See [Salesforce DX Project Configuration](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_ws_config.htm).
+- Always ask the assistant to distinguish **verified facts**, **requirements**, **proposals**, and **unknowns**.
+- Give it the relevant user story and actual code files before requesting an implementation.
+- Review generated code, test cases, documentation, and security assumptions as a human team.
+- Never paste production data, secrets, access tokens, or personally identifiable donor information into an AI tool.
+- Record accepted decisions in `SPRINT-DECISIONS.md` and announce important changes in the Sprint's shared communication channel.
 
-## Get Started
+## Source material
 
-Ready to start developing? The [Get Started with Salesforce DX](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_get_started_dx.htm) guide walks you through your first project, from creating a scratch org to creating a simple Apex class or LWC to deploying your code to a sandbox.
+- [Summit Events App source](https://github.com/SFDO-Community/Summit-Events-App)
+- [Original invitation-processing enhancement request](https://trailhead.salesforce.com/trailblazer-community/feed/0D5KX00000pNKtJ0AW)
+- Provided reference: `Enhancement-Request-Invitation-processing.txt`
+- Provided reference: `Previous-Sprint-Plan.txt`
+- Provided reference: `Virtual Sprint KBYG Deck - August 2026.pdf` (especially pages 12 and 41)
 
-## Common Salesforce CLI Commands
-
-Here are common CLI commands that you'll use the most:
-
-- `sf org login web`: Authorize an org
-- `sf org open`: Open your org in a browser
-- `sf org create scratch`: Create a scratch org
-- `sf project deploy start`: Deploy metadata to your org
-- `sf project retrieve start`: Retrieve metadata from your org
-- `sf template generate <artifact>`: Scaffold new components, such as Apex classes and triggers, LWC components, Lightning apps, and more
-- `sf apex <command>`: Run Apex tests, run anonymous Apex blocks, and view logs
-- `sf data <command>`: Work with test data
-- `sf alias <command>`: Manage org aliases
-- `sf config <command>`: Configure CLI settings
-
-## Use Agentforce Vibes to Build Lightning Apps
-
-Transform your ideas into custom Lightning apps that extend CRM workflows directly in Lightning Experience. Through natural conversations with Agentforce Vibes, implement custom objects and fields, complex business logic, and dynamic UI components. See [Build a Lightning App Using Agentforce Vibes](https://developer.salesforce.com/docs/platform/einstein-for-devs/guide/lexapp-overview.html).
-
-## Additional Resources
-
-- [Agentforce Vibes Developer Guide](https://developer.salesforce.com/docs/platform/einstein-for-devs/guide/einstein-overview.html)
-- [Salesforce CLI Installation Guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_intro.htm)
-- [Salesforce DX Developer Guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/)
-- [Salesforce CLI Command Reference](https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_reference.meta/sfdx_cli_reference/)
-- [Salesforce CLI Plugin Development Guide](https://developer.salesforce.com/docs/platform/salesforce-cli-plugin/guide/conceptual-overview.html)
-- [Salesforce VS Code Extensions Documentation](https://developer.salesforce.com/tools/vscode/)
-
+**Status:** Initial Sprint context draft. Story IDs and scope are proposed organizational labels; confirm against the actual Sprint board.
