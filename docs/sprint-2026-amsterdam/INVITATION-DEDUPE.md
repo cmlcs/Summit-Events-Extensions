@@ -49,7 +49,7 @@ Do not call these yourself: `findExisting` and `adoptExisting` are the two halve
 
 - The service runs `without sharing` and in system mode, so it sees every Registration regardless of the running user. Call it only from trusted automation, never from guest-facing code.
 - The running user needs SEA's **Summit Events Admin** permission set. SEA's own Registration trigger throws a NullPointerException for users who cannot read `Summit_Events__c` (an SEA bug, to be reported upstream).
-- Bhuvana's `Summit_Events_Invite_Manager` permission set gives read-only access to `Invitation_Key__c` and `Campaign_Member_Id__c`. The service does not need it. This permission set is not in this repo yet; when it is committed, it must include these two field permissions.
+- Bhuvana's `Summit_Events_Invite_Manager` permission set gives read-only access to `Invitation_Key__c` and `Campaign_Member_Id__c`. The service does not need it. The permission set is maintained directly in the sandbox; the repo copy was retrieved from the sandbox on 2026-10-19. It also grants access to `Campaign.Summit_Events_Instance__c` and `Contact.Donor_Type__c`, which are not in this repo yet, so a deploy to a fresh org needs those fields as well.
 - Campaign → Event Instance mapping: Jelena's unmanaged `Campaign__c` lookup on Event Instance (DEC-001, not yet in this repo).
 - Campaign Member link rule: DEC-007, implemented as Peter's proposal (option 3) while the decision is still Proposed.
 
