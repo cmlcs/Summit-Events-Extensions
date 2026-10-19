@@ -7,8 +7,39 @@ private class InvitationRegistrationDedupeTest {
         summit__Summit_Events__c evt = new summit__Summit_Events__c(Name = 'Dedupe Test Gala');
         insert evt;
         insert new summit__Summit_Events_Instance__c(summit__Event__c = evt.Id, summit__Instance_Title__c = 'Dedupe Test Gala 2026');
-        insert new List<Contact>{ new Contact(FirstName = 'Maria', LastName = 'Dedupetest'), new Contact(FirstName = 'Jan', LastName = 'Dedupetest') };
+        Contact maria = new Contact(FirstName = 'Maria', LastName = 'Dedupetest');
+        insert new List<Contact>{ maria, new Contact(FirstName = 'Jan', LastName = 'Dedupetest') };
         insert new Lead(FirstName = 'Lea', LastName = 'Dedupetest', Company = 'Dedupe Test Company');
+
+        // Creating Campaigns requires the Marketing User setting, even in Apex; don't depend on the test runner having it
+        User marketingUser = newTestUser('System Administrator', 'ddmkt');
+        marketingUser.UserPermissionsMarketingUser = true;
+        System.runAs(new User(Id = UserInfo.getUserId())) {
+            insert marketingUser;
+        }
+        // Maria is a member of two Campaigns for the same gala (e.g. donors and ambassadors)
+        System.runAs(marketingUser) {
+            List<Campaign> campaigns = new List<Campaign>{ new Campaign(Name = 'Dedupetest Donors'), new Campaign(Name = 'Dedupetest Ambassadors') };
+            insert campaigns;
+            insert new List<CampaignMember>{
+                new CampaignMember(CampaignId = campaigns[0].Id, ContactId = maria.Id),
+                new CampaignMember(CampaignId = campaigns[1].Id, ContactId = maria.Id)
+            };
+        }
+    }
+
+    private static User newTestUser(String profileName, String alias) {
+        return new User(
+            ProfileId = [SELECT Id FROM Profile WHERE Name = :profileName].Id,
+            LastName = 'Dedupetest',
+            Alias = alias,
+            Email = alias + '@example.invalid',
+            Username = alias + System.currentTimeMillis() + '@example.invalid',
+            EmailEncodingKey = 'UTF-8',
+            LanguageLocaleKey = 'en_US',
+            LocaleSidKey = 'en_US',
+            TimeZoneSidKey = 'Europe/Amsterdam'
+        );
     }
 
     private static summit__Summit_Events_Instance__c getInstance() {
@@ -23,13 +54,22 @@ private class InvitationRegistrationDedupeTest {
         return [SELECT Id FROM Lead WHERE LastName = 'Dedupetest' LIMIT 1];
     }
 
-    // The service never queries Campaign Members, so generated Ids are enough to key requests and results
+    // Existing Campaign Members of Maria: [Donors, Ambassadors]
+    private static List<Id> getMariaMemberIds() {
+        List<Id> memberIds = new List<Id>();
+        for (CampaignMember member : [SELECT Id FROM CampaignMember WHERE Campaign.Name LIKE 'Dedupetest%' ORDER BY Campaign.Name DESC]) {
+            memberIds.add(member.Id);
+        }
+        return memberIds;
+    }
+
+    // Generated Ids behave like Campaign Members that no longer exist; the service only queries them for that check
     private static Id campaignMemberId(Integer n) {
         return Id.valueOf(CampaignMember.SObjectType.getDescribe().getKeyPrefix() + String.valueOf(n).leftPad(12, '0'));
     }
 
-    private static InvitationRegistrationDedupe.Request request(Id instanceId, Id contactId, Id leadId, Integer cmNumber) {
-        return new InvitationRegistrationDedupe.Request(instanceId, contactId, leadId, cmNumber == null ? null : campaignMemberId(cmNumber));
+    private static InvitationRegistrationDedupe.Request request(Id instanceId, Id contactId, Id leadId, Id memberId) {
+        return new InvitationRegistrationDedupe.Request(instanceId, contactId, leadId, memberId);
     }
 
     private static summit__Summit_Events_Registration__c newRegistration(summit__Summit_Events_Instance__c instance, Id contactId, Id leadId) {
@@ -39,6 +79,15 @@ private class InvitationRegistrationDedupeTest {
             summit__Contact__c = contactId,
             summit__Lead__c = leadId
         );
+    }
+
+    private static summit__Summit_Events_Registration__c reload(Id registrationId) {
+        return [
+            SELECT summit__Status__c, summit__Add_Info_Answer_1__c, Invitation_Key__c, Campaign_Member_Id__c
+            FROM summit__Summit_Events_Registration__c
+            WHERE Id = :registrationId
+            WITH SYSTEM_MODE
+        ];
     }
 
     // Assert messages must not be null
@@ -68,7 +117,7 @@ private class InvitationRegistrationDedupeTest {
         summit__Summit_Events_Instance__c instance = getInstance();
         Test.startTest();
         Map<Id, InvitationRegistrationDedupe.Result> results = InvitationRegistrationDedupe.resolve(
-            new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, getContact('Maria').Id, null, 1) }
+            new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, getContact('Maria').Id, null, campaignMemberId(1)) }
         );
         Test.stopTest();
         Assert.areEqual(InvitationRegistrationDedupe.Outcome.NEW_REGISTRATION_NEEDED, results.get(campaignMemberId(1)).outcome);
@@ -76,40 +125,94 @@ private class InvitationRegistrationDedupeTest {
     }
 
     @IsTest
-    static void reprocessingSamePersonDoesNotCreateSecondRegistration() {
+    static void reprocessingSameMemberDoesNotCreateSecondRegistration() {
         summit__Summit_Events_Instance__c instance = getInstance();
         Id contactId = getContact('Maria').Id;
+        Id memberId = getMariaMemberIds()[0];
 
         Test.startTest();
         InvitationRegistrationDedupe.Result first = InvitationRegistrationDedupe.insertRegistrations(
-                new Map<Id, summit__Summit_Events_Registration__c>{ campaignMemberId(1) => newRegistration(instance, contactId, null) }
+                new Map<Id, summit__Summit_Events_Registration__c>{ memberId => newRegistration(instance, contactId, null) }
             )
-            .get(campaignMemberId(1));
-        // Removing and re-adding Maria gives a new Campaign Member Id but resolves to the same Registration
+            .get(memberId);
         InvitationRegistrationDedupe.Result second = InvitationRegistrationDedupe.resolve(
-                new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, contactId, null, 2) }
+                new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, contactId, null, memberId) }
             )
-            .get(campaignMemberId(2));
+            .get(memberId);
         // A caller that skips resolve still cannot insert a duplicate
         InvitationRegistrationDedupe.Result third = InvitationRegistrationDedupe.insertRegistrations(
-                new Map<Id, summit__Summit_Events_Registration__c>{ campaignMemberId(3) => newRegistration(instance, contactId, null) }
+                new Map<Id, summit__Summit_Events_Registration__c>{ memberId => newRegistration(instance, contactId, null) }
             )
-            .get(campaignMemberId(3));
+            .get(memberId);
         Test.stopTest();
 
         Assert.areEqual(InvitationRegistrationDedupe.Outcome.CREATED, first.outcome, messageOf(first.message));
-        Assert.areEqual(InvitationRegistrationDedupe.Outcome.EXISTING_FOUND, second.outcome);
+        Assert.areEqual(String.valueOf(memberId), reload(first.registration.Id).Campaign_Member_Id__c, 'New Registration is linked');
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.EXISTING_FOUND, second.outcome, messageOf(second.message));
         Assert.areEqual(first.registration.Id, second.registration.Id);
         Assert.areEqual(InvitationRegistrationDedupe.Outcome.EXISTING_FOUND, third.outcome, messageOf(third.message));
         Assert.areEqual(first.registration.Id, third.registration.Id);
-        Assert.areEqual(campaignMemberId(3), third.request.campaignMemberId, 'Result carries the Campaign Member it was created for');
         Assert.areEqual(1, countRegistrations(instance.Id));
     }
 
     @IsTest
-    static void existingPublicRegistrationIsAdoptedAndPreserved() {
+    static void removedAndReAddedMemberIsRelinked() {
         summit__Summit_Events_Instance__c instance = getInstance();
         Id contactId = getContact('Maria').Id;
+        // Created for a Campaign Member that has since been removed
+        Id registrationId = InvitationRegistrationDedupe.insertRegistrations(
+                new Map<Id, summit__Summit_Events_Registration__c>{ campaignMemberId(1) => newRegistration(instance, contactId, null) }
+            )
+            .get(campaignMemberId(1))
+            .registration.Id;
+        Id newMemberId = getMariaMemberIds()[0];
+
+        Test.startTest();
+        InvitationRegistrationDedupe.Result result = InvitationRegistrationDedupe.resolve(
+                new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, contactId, null, newMemberId) }
+            )
+            .get(newMemberId);
+        Test.stopTest();
+
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.LINKED, result.outcome, messageOf(result.message));
+        Assert.areEqual(String.valueOf(newMemberId), reload(registrationId).Campaign_Member_Id__c);
+        Assert.areEqual(1, countRegistrations(instance.Id));
+    }
+
+    @IsTest
+    static void memberOfSecondCampaignIsBlockedWhileFirstMemberExists() {
+        summit__Summit_Events_Instance__c instance = getInstance();
+        Id contactId = getContact('Maria').Id;
+        List<Id> memberIds = getMariaMemberIds();
+        Id registrationId = InvitationRegistrationDedupe.insertRegistrations(
+                new Map<Id, summit__Summit_Events_Registration__c>{ memberIds[0] => newRegistration(instance, contactId, null) }
+            )
+            .get(memberIds[0])
+            .registration.Id;
+
+        Test.startTest();
+        InvitationRegistrationDedupe.Result resolved = InvitationRegistrationDedupe.resolve(
+                new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, contactId, null, memberIds[1]) }
+            )
+            .get(memberIds[1]);
+        InvitationRegistrationDedupe.Result inserted = InvitationRegistrationDedupe.insertRegistrations(
+                new Map<Id, summit__Summit_Events_Registration__c>{ memberIds[1] => newRegistration(instance, contactId, null) }
+            )
+            .get(memberIds[1]);
+        Test.stopTest();
+
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.LINKED_TO_OTHER_MEMBER, resolved.outcome, messageOf(resolved.message));
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.LINKED_TO_OTHER_MEMBER, inserted.outcome, messageOf(inserted.message));
+        Assert.areEqual(registrationId, resolved.registration.Id);
+        Assert.areEqual(String.valueOf(memberIds[0]), reload(registrationId).Campaign_Member_Id__c, 'Existing link is kept');
+        Assert.areEqual(1, countRegistrations(instance.Id));
+    }
+
+    @IsTest
+    static void existingPublicRegistrationIsLinkedAndPreserved() {
+        summit__Summit_Events_Instance__c instance = getInstance();
+        Id contactId = getContact('Maria').Id;
+        Id memberId = getMariaMemberIds()[0];
         summit__Summit_Events_Registration__c publicReg = newRegistration(instance, contactId, null);
         publicReg.summit__Status__c = 'Registered';
         publicReg.summit__Add_Info_Answer_1__c = 'Vegetarian';
@@ -117,21 +220,36 @@ private class InvitationRegistrationDedupeTest {
 
         Test.startTest();
         InvitationRegistrationDedupe.Result result = InvitationRegistrationDedupe.resolve(
-                new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, contactId, null, 1) }
+                new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, contactId, null, memberId) }
             )
-            .get(campaignMemberId(1));
+            .get(memberId);
         Test.stopTest();
 
-        Assert.areEqual(InvitationRegistrationDedupe.Outcome.EXISTING_FOUND, result.outcome);
-        summit__Summit_Events_Registration__c reloaded = [
-            SELECT summit__Status__c, summit__Add_Info_Answer_1__c, Invitation_Key__c
-            FROM summit__Summit_Events_Registration__c
-            WHERE Id = :publicReg.Id
-            WITH SYSTEM_MODE
-        ];
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.LINKED, result.outcome, messageOf(result.message));
+        summit__Summit_Events_Registration__c reloaded = reload(publicReg.Id);
         Assert.areEqual('Registered', reloaded.summit__Status__c, 'Status is not overwritten');
         Assert.areEqual('Vegetarian', reloaded.summit__Add_Info_Answer_1__c, 'Answers are not overwritten');
         Assert.areEqual(result.invitationKey, reloaded.Invitation_Key__c, 'Adopted Registration gets the key');
+        Assert.areEqual(String.valueOf(memberId), reloaded.Campaign_Member_Id__c, 'Adopted Registration is linked');
+        Assert.areEqual(1, countRegistrations(instance.Id));
+    }
+
+    @IsTest
+    static void sameRegistrationMatchedTwiceInOneCallIsLinkedOnce() {
+        summit__Summit_Events_Instance__c instance = getInstance();
+        Id contactId = getContact('Maria').Id;
+        Id leadId = getLead().Id;
+        // Registration carrying both a Contact and a Lead (e.g. converted Lead), reached through two members
+        insert newRegistration(instance, contactId, leadId);
+
+        Map<Id, InvitationRegistrationDedupe.Result> results = InvitationRegistrationDedupe.resolve(
+            new List<InvitationRegistrationDedupe.Request>{
+                request(instance.Id, contactId, null, campaignMemberId(1)),
+                request(instance.Id, null, leadId, campaignMemberId(2))
+            }
+        );
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.LINKED, results.get(campaignMemberId(1)).outcome);
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.LINKED_TO_OTHER_MEMBER, results.get(campaignMemberId(2)).outcome);
         Assert.areEqual(1, countRegistrations(instance.Id));
     }
 
@@ -158,7 +276,10 @@ private class InvitationRegistrationDedupeTest {
         insert newRegistration(instance, null, null);
 
         Map<Id, InvitationRegistrationDedupe.Result> results = InvitationRegistrationDedupe.resolve(
-            new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, null, null, 1), request(instance.Id, getContact('Jan').Id, null, 2) }
+            new List<InvitationRegistrationDedupe.Request>{
+                request(instance.Id, null, null, campaignMemberId(1)),
+                request(instance.Id, getContact('Jan').Id, null, campaignMemberId(2))
+            }
         );
         Assert.areEqual(InvitationRegistrationDedupe.Outcome.SKIPPED_NO_PERSON, results.get(campaignMemberId(1)).outcome);
         Assert.areEqual(
@@ -183,31 +304,34 @@ private class InvitationRegistrationDedupeTest {
     static void leadInviteeIsMatchedByLead() {
         summit__Summit_Events_Instance__c instance = getInstance();
         Id leadId = getLead().Id;
-        InvitationRegistrationDedupe.insertRegistrations(new Map<Id, summit__Summit_Events_Registration__c>{ campaignMemberId(1) => newRegistration(instance, null, leadId) });
-
-        Map<Id, InvitationRegistrationDedupe.Result> results = InvitationRegistrationDedupe.resolve(
-            new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, null, leadId, 2) }
+        InvitationRegistrationDedupe.insertRegistrations(
+            new Map<Id, summit__Summit_Events_Registration__c>{ campaignMemberId(1) => newRegistration(instance, null, leadId) }
         );
-        Assert.areEqual(InvitationRegistrationDedupe.Outcome.EXISTING_FOUND, results.get(campaignMemberId(2)).outcome);
+
+        List<InvitationRegistrationDedupe.Result> results = InvitationRegistrationDedupe.findExisting(
+            new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, null, leadId, null) }
+        );
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.EXISTING_FOUND, results[0].outcome);
     }
 
     @IsTest
     static void samePersonTwiceInOneCallIsFlagged() {
         summit__Summit_Events_Instance__c instance = getInstance();
         Id contactId = getContact('Maria').Id;
+        List<Id> memberIds = getMariaMemberIds();
 
         // Same person through two Campaign Members, e.g. two Campaigns linked to the same Event Instance
         Map<Id, InvitationRegistrationDedupe.Result> found = InvitationRegistrationDedupe.resolve(
-            new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, contactId, null, 1), request(instance.Id, contactId, null, 2) }
+            new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, contactId, null, memberIds[0]), request(instance.Id, contactId, null, memberIds[1]) }
         );
-        Assert.areEqual(InvitationRegistrationDedupe.Outcome.NEW_REGISTRATION_NEEDED, found.get(campaignMemberId(1)).outcome);
-        Assert.areEqual(InvitationRegistrationDedupe.Outcome.DUPLICATE_IN_REQUEST, found.get(campaignMemberId(2)).outcome);
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.NEW_REGISTRATION_NEEDED, found.get(memberIds[0]).outcome);
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.DUPLICATE_IN_REQUEST, found.get(memberIds[1]).outcome);
 
-        // Same person twice in one insert: the unique key lets only one through
+        // Same person twice in one insert: the unique key lets only one through, the other member is blocked
         Map<Id, InvitationRegistrationDedupe.Result> inserted = InvitationRegistrationDedupe.insertRegistrations(
             new Map<Id, summit__Summit_Events_Registration__c>{
-                campaignMemberId(1) => newRegistration(instance, contactId, null),
-                campaignMemberId(2) => newRegistration(instance, contactId, null)
+                memberIds[0] => newRegistration(instance, contactId, null),
+                memberIds[1] => newRegistration(instance, contactId, null)
             }
         );
         Assert.areEqual(1, countRegistrations(instance.Id));
@@ -216,30 +340,24 @@ private class InvitationRegistrationDedupeTest {
             outcomes.add(res.outcome);
         }
         Assert.areEqual(
-            new Set<InvitationRegistrationDedupe.Outcome>{ InvitationRegistrationDedupe.Outcome.CREATED, InvitationRegistrationDedupe.Outcome.EXISTING_FOUND },
+            new Set<InvitationRegistrationDedupe.Outcome>{
+                InvitationRegistrationDedupe.Outcome.CREATED,
+                InvitationRegistrationDedupe.Outcome.LINKED_TO_OTHER_MEMBER
+            },
             outcomes
         );
     }
 
-    // Event Manager with the Summit Events Admin permission set but without Summit_Events_Invitation_Admin
-    // (no access to Invitation_Key__c). Note: SEA's registration trigger throws a NullPointerException for
+    // Event Manager with the Summit Events Admin permission set but without Summit_Events_Invite_Manager
+    // (no access to the invitation fields). Note: SEA's registration trigger throws a NullPointerException for
     // users without read access to Summit_Events__c, so a user without any SEA permission cannot be used here.
     @IsTest
     static void worksForUserWithoutInvitationFieldAccess() {
         summit__Summit_Events_Instance__c instance = getInstance();
         Id contactId = getContact('Maria').Id;
+        Id memberId = getMariaMemberIds()[0];
         insert newRegistration(instance, contactId, null);
-        User eventManager = new User(
-            ProfileId = [SELECT Id FROM Profile WHERE Name = 'Standard User'].Id,
-            LastName = 'Dedupetest',
-            Alias = 'ddtest',
-            Email = 'dedupetest@example.invalid',
-            Username = 'dedupetest' + System.currentTimeMillis() + '@example.invalid',
-            EmailEncodingKey = 'UTF-8',
-            LanguageLocaleKey = 'en_US',
-            LocaleSidKey = 'en_US',
-            TimeZoneSidKey = 'Europe/Amsterdam'
-        );
+        User eventManager = newTestUser('Standard User', 'ddevtmgr');
         // Setup objects in their own context to avoid mixed DML with the Registration insert above
         System.runAs(new User(Id = UserInfo.getUserId())) {
             insert eventManager;
@@ -251,17 +369,17 @@ private class InvitationRegistrationDedupeTest {
 
         InvitationRegistrationDedupe.Result result;
         System.runAs(eventManager) {
-            result = InvitationRegistrationDedupe.resolve(new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, contactId, null, 1) })
-                .get(campaignMemberId(1));
+            result = InvitationRegistrationDedupe.resolve(new List<InvitationRegistrationDedupe.Request>{ request(instance.Id, contactId, null, memberId) })
+                .get(memberId);
         }
-        Assert.areEqual(InvitationRegistrationDedupe.Outcome.EXISTING_FOUND, result.outcome, messageOf(result.message));
+        Assert.areEqual(InvitationRegistrationDedupe.Outcome.LINKED, result.outcome, messageOf(result.message));
         Assert.areEqual(1, countRegistrations(instance.Id));
     }
 
     @IsTest
     static void missingEventInstanceThrows() {
         try {
-            InvitationRegistrationDedupe.resolve(new List<InvitationRegistrationDedupe.Request>{ request(null, null, null, 1) });
+            InvitationRegistrationDedupe.resolve(new List<InvitationRegistrationDedupe.Request>{ request(null, null, null, campaignMemberId(1)) });
             Assert.fail('Expected InvitationProcessingException');
         } catch (InvitationProcessingException e) {
             Assert.isTrue(e.getMessage().contains('Event Instance'));
@@ -274,7 +392,10 @@ private class InvitationRegistrationDedupeTest {
         Id contactId = getContact('Maria').Id;
         List<List<InvitationRegistrationDedupe.Request>> invalidInputs = new List<List<InvitationRegistrationDedupe.Request>>{
             new List<InvitationRegistrationDedupe.Request>{ request(instanceId, contactId, null, null) },
-            new List<InvitationRegistrationDedupe.Request>{ request(instanceId, contactId, null, 1), request(instanceId, getContact('Jan').Id, null, 1) }
+            new List<InvitationRegistrationDedupe.Request>{
+                request(instanceId, contactId, null, campaignMemberId(1)),
+                request(instanceId, getContact('Jan').Id, null, campaignMemberId(1))
+            }
         };
         for (List<InvitationRegistrationDedupe.Request> requests : invalidInputs) {
             try {
@@ -297,7 +418,7 @@ private class InvitationRegistrationDedupeTest {
 
         List<InvitationRegistrationDedupe.Request> requests = new List<InvitationRegistrationDedupe.Request>();
         for (Integer i = 0; i < BULK_SIZE; i++) {
-            requests.add(request(instance.Id, contacts[i].Id, null, i));
+            requests.add(request(instance.Id, contacts[i].Id, null, campaignMemberId(i)));
         }
 
         Test.startTest();
@@ -311,7 +432,7 @@ private class InvitationRegistrationDedupeTest {
         for (InvitationRegistrationDedupe.Result res : created.values()) {
             Assert.areEqual(InvitationRegistrationDedupe.Outcome.CREATED, res.outcome, messageOf(res.message));
         }
-        // Reprocess the whole Campaign
+        // Reprocess the whole Campaign: same members, nothing to link or create
         for (InvitationRegistrationDedupe.Result res : InvitationRegistrationDedupe.resolve(requests).values()) {
             Assert.areEqual(InvitationRegistrationDedupe.Outcome.EXISTING_FOUND, res.outcome);
         }
