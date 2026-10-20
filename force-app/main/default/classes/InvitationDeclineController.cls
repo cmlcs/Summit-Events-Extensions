@@ -6,7 +6,10 @@
  * - The Registration is identified by the encrypted string in the URL (see InvitationLink), never by a plain Id.
  * - Loading the page changes nothing. Email link scanners open links, so only the confirm button (a POST,
  *   protected by the Visualforce view state) can decline.
- * - The status is re-read before the update, and only summit__Status__c is written.
+ * - The status is re-read before the update, and only summit__Status__c and the optional decline reason and
+ *   comment (US-09) are written.
+ * - The reason and comment arrive as plain strings, not bound fields, so the guest user needs no field access.
+ *   An unknown reason is dropped and the comment is cut to the field length; neither blocks the decline.
  */
 public with sharing class InvitationDeclineController {
     public static final String DECLINED_STATUS = 'Declined';
@@ -22,6 +25,8 @@ public with sharing class InvitationDeclineController {
     public Boolean canDecline { get; private set; }
     public Boolean alreadyDeclined { get; private set; }
     public Boolean notDeclinable { get; private set; }
+    public String declineReason { get; set; }
+    public String declineComment { get; set; }
     private String eventParameter;
     private Id registrationId;
 
@@ -59,7 +64,7 @@ public with sharing class InvitationDeclineController {
             // Re-read the status so a registration completed in another tab can't be declined from a stale page
             summit__Summit_Events_Registration__c currentRegistration = access.getRegistration(registrationId);
             if (currentRegistration != null && DECLINABLE_STATUSES.contains(currentRegistration.summit__Status__c)) {
-                if (!access.updateStatus(registrationId, DECLINED_STATUS)) {
+                if (!access.recordDecline(registrationId, getValidReason(declineReason), getCleanComment(declineComment))) {
                     ApexPages.addMessage(new ApexPages.Message(ApexPages.Severity.WARNING, 'We could not record your response. Please try again or contact the event organizer.'));
                     return null;
                 }
@@ -69,6 +74,41 @@ public with sharing class InvitationDeclineController {
         pg.getParameters().put('eventInfo', eventParameter);
         pg.setRedirect(true);
         return pg;
+    }
+
+    public List<SelectOption> getDeclineReasonOptions() {
+        List<SelectOption> options = new List<SelectOption>{ new SelectOption('', 'Prefer not to say') };
+        for (Schema.PicklistEntry entry : getReasonEntries()) {
+            if (entry.isActive()) {
+                options.add(new SelectOption(entry.getValue(), entry.getLabel()));
+            }
+        }
+        return options;
+    }
+
+    public Integer getDeclineCommentLength() {
+        return Schema.SObjectType.summit__Summit_Events_Registration__c.fields.Decline_Comment__c.getLength();
+    }
+
+    // A posted value that is not an active picklist value (a tampered form) is dropped rather than failing the decline
+    private static String getValidReason(String reason) {
+        if (String.isBlank(reason)) {
+            return null;
+        }
+        for (Schema.PicklistEntry entry : getReasonEntries()) {
+            if (entry.isActive() && entry.getValue() == reason) {
+                return reason;
+            }
+        }
+        return null;
+    }
+
+    private String getCleanComment(String comment) {
+        return String.isBlank(comment) ? null : comment.trim().left(getDeclineCommentLength());
+    }
+
+    private static List<Schema.PicklistEntry> getReasonEntries() {
+        return Schema.SObjectType.summit__Summit_Events_Registration__c.fields.Decline_Reason__c.getPicklistValues();
     }
 
     private void setDeclineState(String status) {
@@ -87,7 +127,8 @@ public with sharing class InvitationDeclineController {
 
     /**
      * The guest user does not own the Registration, so reads and the status update run without sharing and in
-     * system mode. The caller has already proved access with the encrypted link; only the status is written.
+     * system mode. The caller has already proved access with the encrypted link; only the status and the
+     * decline reason and comment are written.
      */
     private without sharing class RegistrationAccess {
 
@@ -114,9 +155,14 @@ public with sharing class InvitationDeclineController {
             return events.isEmpty() ? new summit__Summit_Events__c() : events[0];
         }
 
-        public Boolean updateStatus(Id regId, String newStatus) {
+        public Boolean recordDecline(Id regId, String reason, String comment) {
             Database.SaveResult result = Database.update(
-                new summit__Summit_Events_Registration__c(Id = regId, summit__Status__c = newStatus),
+                new summit__Summit_Events_Registration__c(
+                    Id = regId,
+                    summit__Status__c = InvitationDeclineController.DECLINED_STATUS,
+                    Decline_Reason__c = reason,
+                    Decline_Comment__c = comment
+                ),
                 false,
                 AccessLevel.SYSTEM_MODE
             );

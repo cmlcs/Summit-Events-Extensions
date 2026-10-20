@@ -234,4 +234,115 @@ private class InvitationDeclineControllerTest {
         Assert.isNull(InvitationLink.decryptRegistrationId(token));
         Test.stopTest();
     }
+
+    // US-09: optional decline reason and comment
+
+    private static summit__Summit_Events_Registration__c getDecline(Id registrationId) {
+        return [
+            SELECT summit__Status__c, Decline_Reason__c, Decline_Comment__c
+            FROM summit__Summit_Events_Registration__c
+            WHERE Id = :registrationId
+        ];
+    }
+
+    private static summit__Summit_Events_Registration__c declineWith(String reason, String comment) {
+        summit__Summit_Events_Registration__c invitation = createRegistration('Invited');
+
+        System.runAs(invitee()) {
+            Test.startTest();
+            InvitationDeclineController declineCtrl = openDeclinePage(getLinkParameter(invitation));
+            declineCtrl.declineReason = reason;
+            declineCtrl.declineComment = comment;
+            declineCtrl.declineInvitation();
+            Test.stopTest();
+        }
+        return getDecline(invitation.Id);
+    }
+
+    @IsTest
+    static void declineStoresReasonAndComment() {
+        summit__Summit_Events_Registration__c declined = declineWith('Travelling', '  Abroad that week, good luck!  ');
+
+        Assert.areEqual('Declined', declined.summit__Status__c);
+        Assert.areEqual('Travelling', declined.Decline_Reason__c);
+        Assert.areEqual('Abroad that week, good luck!', declined.Decline_Comment__c);
+    }
+
+    @IsTest
+    static void declineWithoutReasonLeavesFieldsBlank() {
+        summit__Summit_Events_Registration__c declined = declineWith('', '   ');
+
+        Assert.areEqual('Declined', declined.summit__Status__c);
+        Assert.isNull(declined.Decline_Reason__c);
+        Assert.isNull(declined.Decline_Comment__c);
+    }
+
+    @IsTest
+    static void unknownReasonIsDroppedButDeclineSucceeds() {
+        summit__Summit_Events_Registration__c declined = declineWith('Tampered value', null);
+
+        Assert.areEqual('Declined', declined.summit__Status__c);
+        Assert.isNull(declined.Decline_Reason__c);
+    }
+
+    @IsTest
+    static void longCommentIsCutToFieldLength() {
+        Integer maxLength = Schema.SObjectType.summit__Summit_Events_Registration__c.fields.Decline_Comment__c.getLength();
+        summit__Summit_Events_Registration__c declined = declineWith(null, 'x'.repeat(maxLength + 500));
+
+        Assert.areEqual('Declined', declined.summit__Status__c);
+        Assert.areEqual(maxLength, declined.Decline_Comment__c.length());
+    }
+
+    @IsTest
+    static void repeatDeclineKeepsFirstReason() {
+        summit__Summit_Events_Registration__c invitation = createRegistration('Declined');
+        invitation.Decline_Reason__c = 'Other';
+        invitation.Decline_Comment__c = 'First answer';
+        update invitation;
+
+        System.runAs(invitee()) {
+            Test.startTest();
+            InvitationDeclineController declineCtrl = openDeclinePage(getLinkParameter(invitation));
+            declineCtrl.declineReason = 'Travelling';
+            declineCtrl.declineComment = 'Second answer';
+            declineCtrl.declineInvitation();
+            Test.stopTest();
+        }
+
+        summit__Summit_Events_Registration__c declined = getDecline(invitation.Id);
+        Assert.areEqual('Other', declined.Decline_Reason__c);
+        Assert.areEqual('First answer', declined.Decline_Comment__c);
+    }
+
+    @IsTest
+    static void registeredInviteeReasonIsNotStored() {
+        summit__Summit_Events_Registration__c registration = createRegistration('Registered');
+
+        System.runAs(invitee()) {
+            Test.startTest();
+            InvitationDeclineController declineCtrl = openDeclinePage(getLinkParameter(registration));
+            declineCtrl.declineReason = 'Travelling';
+            declineCtrl.declineInvitation();
+            Test.stopTest();
+        }
+
+        summit__Summit_Events_Registration__c result = getDecline(registration.Id);
+        Assert.areEqual('Registered', result.summit__Status__c);
+        Assert.isNull(result.Decline_Reason__c);
+    }
+
+    @IsTest
+    static void reasonOptionsStartWithPreferNotToSay() {
+        summit__Summit_Events_Registration__c invitation = createRegistration('Invited');
+
+        System.runAs(invitee()) {
+            Test.startTest();
+            List<SelectOption> options = openDeclinePage(getLinkParameter(invitation)).getDeclineReasonOptions();
+            Test.stopTest();
+
+            Assert.areEqual('', options[0].getValue());
+            Assert.isTrue(options.size() > 1, 'The active Decline Reason values must be offered');
+        }
+    }
 }
