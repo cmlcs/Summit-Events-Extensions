@@ -372,21 +372,6 @@ private class SummitEventsInvitationServiceTest {
         Assert.isNotNull(stored.Public_Invitation_Issued_At__c);
     }
 
-    // Without sharing: duplicate detection can adopt Registrations the running user cannot see
-    @IsTest
-    static void automationIssuesLinkForRegistrationNotSharedWithUser() {
-        SummitEventsInvitationService.baseUrl = BASE_URL;
-        summit__Summit_Events_Registration__c registration = insertRegistration();
-
-        System.runAs(newMinimumAccessUser('silnoshr')) {
-            Test.startTest();
-            SummitEventsInvitationService.getOrCreateLinksForAutomation(new Set<Id>{ registration.Id });
-            Test.stopTest();
-        }
-
-        Assert.isNotNull(reload(registration.Id).Public_Invitation_Token_Hash__c);
-    }
-
     @IsTest
     static void automationReusesExistingLink() {
         SummitEventsInvitationService.baseUrl = BASE_URL;

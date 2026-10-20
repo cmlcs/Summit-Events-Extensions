@@ -33,7 +33,8 @@ private class InvitationDeclineControllerTest {
         );
         String token = newToken();
         registration.Public_Invitation_Token_Hash__c = SummitEventsInvitationService.hashToken(token);
-        insert registration;
+        // System mode: the token hash is hidden from users (DEC-004), and at API 68.0 test DML checks field access
+        insert as system registration;
         tokens.put(registration.Id, token);
         return registration;
     }
@@ -156,7 +157,7 @@ private class InvitationDeclineControllerTest {
 
         // The invitee completes registration in another tab before confirming the decline
         invitation.summit__Status__c = 'Registered';
-        update invitation;
+        update as system invitation;
 
         System.runAs(testUser) {
             Test.startTest();
@@ -246,6 +247,7 @@ private class InvitationDeclineControllerTest {
             SELECT summit__Status__c, Decline_Reason__c, Decline_Comment__c
             FROM summit__Summit_Events_Registration__c
             WHERE Id = :registrationId
+            WITH SYSTEM_MODE
         ];
     }
 
@@ -303,7 +305,7 @@ private class InvitationDeclineControllerTest {
         summit__Summit_Events_Registration__c invitation = createRegistration('Declined');
         invitation.Decline_Reason__c = 'Other';
         invitation.Decline_Comment__c = 'First answer';
-        update invitation;
+        update as system invitation;
 
         System.runAs(invitee()) {
             Test.startTest();

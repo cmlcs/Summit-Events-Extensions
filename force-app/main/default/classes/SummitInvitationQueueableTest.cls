@@ -46,8 +46,9 @@ private class SummitInvitationQueueableTest {
             campaign.put(EVENT_FIELD, eventId);
         }
 
-        insert campaign;
-        insert new CampaignMemberStatus(CampaignId = campaign.Id, Label = 'Invited');
+        // System mode: at API 68.0 test DML checks the running user's access, and the test runner may not be a Marketing User
+        insert as system campaign;
+        insert as system new CampaignMemberStatus(CampaignId = campaign.Id, Label = 'Invited');
         System.debug('xxxCreated campaign: ' + campaign.Id);
         System.debug('xxxAdded Campaign Member Status: Invited');
         return campaign;
@@ -73,7 +74,7 @@ private class SummitInvitationQueueableTest {
             member.LeadId = leadId;
         }
 
-        insert member;
+        insert as system member;
         System.debug('xxxCAMPAIGN MEMBER INSERTED: Id=' + member.Id + ', Requested Status=' + status);
         return member;
     }
@@ -103,7 +104,7 @@ private class SummitInvitationQueueableTest {
         // Add any additional mandatory Summit Registration fields
         // required by your org here.
 
-        insert registration;
+        insert as system registration;
         return registration;
     }
 
@@ -129,7 +130,7 @@ private class SummitInvitationQueueableTest {
         System.debug('xxxx TEST ' + member + campaign + contact);
         System.assertEquals(1, countRegistrations(eventId, contact.Id, null), 'One registration should be created for the invited Contact.');
 
-        summit__Summit_Events_Registration__c registration = [SELECT Id, summit__Status__c, Invitation_Key__c, Campaign_Member_Id__c, Public_Invitation_Link__c, Public_Invitation_Token_Hash__c FROM summit__Summit_Events_Registration__c WHERE summit__Event_Instance__c = :eventId AND summit__Contact__c = :contact.Id LIMIT 1];
+        summit__Summit_Events_Registration__c registration = [SELECT Id, summit__Status__c, Invitation_Key__c, Campaign_Member_Id__c, Public_Invitation_Link__c, Public_Invitation_Token_Hash__c FROM summit__Summit_Events_Registration__c WHERE summit__Event_Instance__c = :eventId AND summit__Contact__c = :contact.Id WITH SYSTEM_MODE LIMIT 1];
 
         System.assertEquals('Invited', registration.summit__Status__c);
         System.assertEquals(InvitationRegistrationDedupe.buildKey(eventId, contact.Id, null), registration.Invitation_Key__c);
@@ -146,7 +147,7 @@ private class SummitInvitationQueueableTest {
     }
 
     private static summit__Summit_Events_Registration__c reloadRegistration(Id registrationId) {
-        return [SELECT Id, summit__Status__c, Public_Invitation_Link__c, Public_Invitation_Token_Hash__c FROM summit__Summit_Events_Registration__c WHERE Id = :registrationId];
+        return [SELECT Id, summit__Status__c, Public_Invitation_Link__c, Public_Invitation_Token_Hash__c FROM summit__Summit_Events_Registration__c WHERE Id = :registrationId WITH SYSTEM_MODE];
     }
 
     @IsTest
@@ -156,7 +157,7 @@ private class SummitInvitationQueueableTest {
         Contact contact = createContact();
         summit__Summit_Events_Registration__c existing = createExistingRegistration(eventId, contact.Id, null);
         existing.summit__Status__c = 'Invited';
-        update existing;
+        update as system existing;
         CampaignMember member = createMember(campaign, contact.Id, null, 'Invited');
 
         Test.startTest();
@@ -192,7 +193,7 @@ private class SummitInvitationQueueableTest {
         CampaignMember member = createMember(campaign, contact.Id, null, 'Invited');
         Test.stopTest();
 
-        summit__Summit_Events_Registration__c registration = [SELECT Id, summit__Status__c, Public_Invitation_Link__c FROM summit__Summit_Events_Registration__c WHERE summit__Contact__c = :contact.Id];
+        summit__Summit_Events_Registration__c registration = [SELECT Id, summit__Status__c, Public_Invitation_Link__c FROM summit__Summit_Events_Registration__c WHERE summit__Contact__c = :contact.Id WITH SYSTEM_MODE];
         System.assertEquals('Invited', registration.summit__Status__c);
         System.assertEquals(null, registration.Public_Invitation_Link__c);
     }
@@ -213,10 +214,10 @@ private class SummitInvitationQueueableTest {
         }
 
         Test.startTest();
-        insert members;
+        insert as system members;
         Test.stopTest();
 
-        List<summit__Summit_Events_Registration__c> registrations = [SELECT Public_Invitation_Token_Hash__c FROM summit__Summit_Events_Registration__c WHERE summit__Event_Instance__c = :eventId AND summit__Status__c = 'Invited'];
+        List<summit__Summit_Events_Registration__c> registrations = [SELECT Public_Invitation_Token_Hash__c FROM summit__Summit_Events_Registration__c WHERE summit__Event_Instance__c = :eventId AND summit__Status__c = 'Invited' WITH SYSTEM_MODE];
         System.assertEquals(600, registrations.size());
         Set<String> hashes = new Set<String>();
         for (summit__Summit_Events_Registration__c registration : registrations) {
