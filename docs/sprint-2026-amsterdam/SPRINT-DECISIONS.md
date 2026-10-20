@@ -88,7 +88,7 @@ No architectural decisions are recorded as accepted in this initial pack.
 ### DEC-007 — Campaign Member handling when a matching Registration already exists
 
 - **Date:** 2026-10-19
-- **Status:** Proposed
+- **Status:** Decided, option 3 is implemented
 - **Question:** When invitation processing finds an existing Registration for the same person and Event Instance, what happens to the Campaign Member being saved? Is the Campaign Member linked to the existing Registration, saved without a link, or blocked?
 - **Options considered:**
   1. Always save the Campaign Member and log the duplicate; the Registration is unchanged.
