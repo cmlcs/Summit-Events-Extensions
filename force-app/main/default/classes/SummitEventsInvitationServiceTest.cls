@@ -5,8 +5,7 @@ private class SummitEventsInvitationServiceTest {
     private static final Map<String, Boolean> SENDER_FIELD_ACCESS = new Map<String, Boolean>{
         'Public_Invitation_Link__c' => true,
         'Public_Invitation_Token_Hash__c' => true,
-        'Public_Invitation_Issued_At__c' => true,
-        'Public_Invitation_Revoked__c' => false
+        'Public_Invitation_Issued_At__c' => true
     };
 
     @TestSetup
@@ -37,7 +36,7 @@ private class SummitEventsInvitationServiceTest {
 
     private static summit__Summit_Events_Registration__c reload(Id registrationId) {
         return [
-            SELECT Public_Invitation_Link__c, Public_Invitation_Token_Hash__c, Public_Invitation_Issued_At__c, Public_Invitation_Revoked__c
+            SELECT Public_Invitation_Link__c, Public_Invitation_Token_Hash__c, Public_Invitation_Issued_At__c
             FROM summit__Summit_Events_Registration__c
             WHERE Id = :registrationId
             WITH SYSTEM_MODE
@@ -230,7 +229,7 @@ private class SummitEventsInvitationServiceTest {
     static void bulkIsAllOrNothing() {
         SummitEventsInvitationService.baseUrl = BASE_URL;
         List<summit__Summit_Events_Registration__c> registrations = insertRegistrations(2);
-        registrations[1].Public_Invitation_Revoked__c = true;
+        registrations[1].Public_Invitation_Link__c = BASE_URL + '?t=orphan';
         update as system registrations[1];
 
         System.runAs(newSender()) {
@@ -238,25 +237,10 @@ private class SummitEventsInvitationServiceTest {
                 SummitEventsInvitationService.getOrCreateLinks(new Set<Id>{ registrations[0].Id, registrations[1].Id });
                 Assert.fail('Expected InvitationException');
             } catch (SummitEventsInvitationService.InvitationException e) {
-                Assert.areEqual('Invitation is revoked: ' + registrations[1].Id, e.getMessage());
+                Assert.areEqual('Incomplete invitation credentials: ' + registrations[1].Id, e.getMessage());
             }
         }
         Assert.isNull(reload(registrations[0].Id).Public_Invitation_Link__c, 'No link is saved when the batch fails');
-    }
-
-    @IsTest
-    static void revokedInvitationGetsNoLink() {
-        SummitEventsInvitationService.baseUrl = BASE_URL;
-        summit__Summit_Events_Registration__c registration = insertRegistration();
-        User sender = newSender();
-        System.runAs(sender) {
-            SummitEventsInvitationService.getOrCreateLink(registration.Id);
-        }
-        update as system new summit__Summit_Events_Registration__c(Id = registration.Id, Public_Invitation_Revoked__c = true);
-
-        System.runAs(sender) {
-            assertFails(registration.Id, 'Invitation is revoked: ' + registration.Id);
-        }
     }
 
     @IsTest
@@ -323,15 +307,6 @@ private class SummitEventsInvitationServiceTest {
     }
 
     @IsTest
-    static void inviteManagerCannotEditRevoked() {
-        System.runAs(newSender()) {
-            Schema.DescribeFieldResult revoked = summit__Summit_Events_Registration__c.Public_Invitation_Revoked__c.getDescribe();
-            Assert.isTrue(revoked.isAccessible());
-            Assert.isFalse(revoked.isUpdateable(), 'Least privilege: the service never writes Revoked');
-        }
-    }
-
-    @IsTest
     static void configuredLabelIsUsedByDefault() {
         Assert.areEqual(System.Label.Summit_Events_Public_Invitation_URL, SummitEventsInvitationService.baseUrl);
     }
@@ -356,17 +331,5 @@ private class SummitEventsInvitationServiceTest {
             assertFails(registration.Id, 'Insufficient field permissions.');
         }
         Assert.isNull(reload(registration.Id).Public_Invitation_Link__c);
-    }
-
-    @IsTest
-    static void userWithoutReadOnRevokedIsRejected() {
-        SummitEventsInvitationService.baseUrl = BASE_URL;
-        summit__Summit_Events_Registration__c registration = insertRegistration();
-        Map<String, Boolean> fieldAccess = SENDER_FIELD_ACCESS.clone();
-        fieldAccess.remove('Public_Invitation_Revoked__c');
-
-        System.runAs(newSender('silnorev', fieldAccess)) {
-            assertFails(registration.Id, 'Insufficient field permissions.');
-        }
     }
 }

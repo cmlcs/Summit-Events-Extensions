@@ -3,7 +3,7 @@
  *
  * The link carries a random 256-bit token, never a Salesforce record Id. The SHA-256 hash of the token is stored
  * in the unique Public_Invitation_Token_Hash__c so the page that receives the link can look the Registration up
- * by hash. Links are issued once and then reused; a revoked or half-written invitation is never (re)issued.
+ * by hash. Links are issued once and then reused; a half-written invitation is never reissued.
  *
  * Runs as the internal user who sends the invitations: sharing, object and field permissions all apply.
  */
@@ -14,13 +14,11 @@ public with sharing class SummitEventsInvitationService {
     private static final Integer TOKEN_HEX_LENGTH = 64;
     private static final Integer LINK_FIELD_LENGTH = 255;
 
-    // The service reads all four fields but never writes Public_Invitation_Revoked__c
-    private static final List<String> FIELDS_WRITTEN = new List<String>{
+    private static final List<String> INVITATION_FIELDS = new List<String>{
         'Public_Invitation_Link__c',
         'Public_Invitation_Token_Hash__c',
         'Public_Invitation_Issued_At__c'
     };
-    private static final String FIELD_REVOKED = 'Public_Invitation_Revoked__c';
 
     @TestVisible
     private static String baseUrl = System.Label.Summit_Events_Public_Invitation_URL;
@@ -74,8 +72,7 @@ public with sharing class SummitEventsInvitationService {
             SELECT Id,
                    Public_Invitation_Link__c,
                    Public_Invitation_Token_Hash__c,
-                   Public_Invitation_Issued_At__c,
-                   Public_Invitation_Revoked__c
+                   Public_Invitation_Issued_At__c
             FROM summit__Summit_Events_Registration__c
             WHERE Id IN :registrationIds
             WITH USER_MODE
@@ -94,13 +91,6 @@ public with sharing class SummitEventsInvitationService {
             new List<summit__Summit_Events_Registration__c>();
 
         for (summit__Summit_Events_Registration__c registration : registrations) {
-
-            // Do not return links for revoked invitations.
-            if (registration.Public_Invitation_Revoked__c == true) {
-                throw new InvitationException(
-                    'Invitation is revoked: ' + registration.Id
-                );
-            }
 
             // Reuse the existing invitation link.
             if (
@@ -138,8 +128,6 @@ public with sharing class SummitEventsInvitationService {
             String invitationUrl = baseUrl + '?t=' + token;
 
             // Populate the custom invitation fields; only the hash is used for lookup.
-            // A new record, not the queried one: user-mode DML checks every field on the record, and the sender
-            // may only read Public_Invitation_Revoked__c.
             registrationsToUpdate.add(new summit__Summit_Events_Registration__c(
                 Id = registration.Id,
                 Public_Invitation_Link__c = invitationUrl,
@@ -183,15 +171,7 @@ public with sharing class SummitEventsInvitationService {
         Map<String, Schema.SObjectField> fields =
             objectInfo.fields.getMap();
 
-        Schema.SObjectField revokedField = fields.get(FIELD_REVOKED);
-        if (revokedField == null ||
-            !revokedField.getDescribe().isAccessible()) {
-            throw new InvitationException(
-                'Insufficient field permissions.'
-            );
-        }
-
-        for (String fieldName : FIELDS_WRITTEN) {
+        for (String fieldName : INVITATION_FIELDS) {
             Schema.SObjectField fieldToken = fields.get(fieldName);
 
             if (fieldToken == null ||
