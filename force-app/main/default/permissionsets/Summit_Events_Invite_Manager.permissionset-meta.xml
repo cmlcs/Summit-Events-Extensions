@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Permission set that provides required access for the person creating and sending invites</description>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>summit__Summit_Events_Registration__c.Invitation_Decline_Link__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>Summit Events Invite Manager</label>
+</PermissionSet>

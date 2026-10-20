@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Extension access for the Summit Events site guest user, next to the package Summit_Events_Registrant permission set. Assigned by the deploy_guest_permission_set task in cumulusci.yml.</description>
+    <classAccesses>
+        <apexClass>InvitationDeclineController</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>Summit Events Registrant Custom</label>
+    <pageAccesses>
+        <apexPage>InvitationDecline</apexPage>
+        <enabled>true</enabled>
+    </pageAccesses>
+</PermissionSet>
