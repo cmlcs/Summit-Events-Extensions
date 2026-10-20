@@ -11,6 +11,16 @@
         <field>Contact.Donor_Type__c</field>
         <readable>true</readable>
     </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>summit__Summit_Events_Registration__c.Campaign_Member_Id__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <editable>false</editable>
+        <field>summit__Summit_Events_Registration__c.Invitation_Key__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>Summit Events Invite Manager</label>
 </PermissionSet>
