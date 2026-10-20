@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <actionCalls>
+        <name>Add_Registration_Statuses</name>
+        <label>Add Registration Statuses</label>
+        <locationX>176</locationX>
+        <locationY>323</locationY>
+        <actionName>AddRegistrationStatusesToCampaign</actionName>
+        <actionType>apex</actionType>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>campaignId</name>
+            <value>
+                <elementReference>$Record.Id</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>AddRegistrationStatusesToCampaign</nameSegment>
+    </actionCalls>
+    <apiVersion>68.0</apiVersion>
+    <description>US-10: when a Campaign is linked to a Summit Events Instance, adds each active Registration status (summit__Status__c) as a Campaign Member Status. Existing statuses are kept.</description>
+    <environments>Default</environments>
+    <interviewLabel>Campaign - Add Registration Statuses {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Campaign - Add Registration Statuses</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Add_Registration_Statuses</targetReference>
+        </connector>
+        <filterFormula>NOT(ISBLANK({!$Record.Summit_Events_Instance__c})) &amp;&amp; (ISNEW() || ISCHANGED({!$Record.Summit_Events_Instance__c}))</filterFormula>
+        <object>Campaign</object>
+        <recordTriggerType>CreateAndUpdate</recordTriggerType>
+        <triggerType>RecordAfterSave</triggerType>
+    </start>
+    <status>Active</status>
+</Flow>

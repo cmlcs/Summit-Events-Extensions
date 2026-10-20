@@ -26,7 +26,7 @@ Salesforce's standard **Add to Campaign** step skips Contacts that are already m
 - **Report date filter.** The report keeps the default filter *Created Date ≥ 2026-10-12*. In a real org this would leave out donors created before that date, so remove the filter or make it relative.
 - **Leads (US-02 AC 2).** `Donor_Type__c` exists on Contact only, so the report does not pick up Leads.
 - **Global Value Set name.** `Donore_Type` contains a typo. Renaming it later is a metadata change, so fix it before the set is packaged or used in other orgs.
-- **Campaign Member status model.** "Sent" is the only status used so far. The full status list and the policy for removed members (US-02 AC 5) are still open.
+- **Campaign Member status model.** "Sent" is the only status used so far. US-10 proposes adding the Registration statuses to linked Campaigns and keeping members in sync; see [CAMPAIGN-MEMBER-STATUS-SYNC.md](CAMPAIGN-MEMBER-STATUS-SYNC.md). The policy for removed members (US-02 AC 5) is still open.
 
 ## Sandbox test data (not in source)
 
