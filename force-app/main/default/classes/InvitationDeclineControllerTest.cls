@@ -58,7 +58,8 @@ private class InvitationDeclineControllerTest {
         return [SELECT summit__Status__c FROM summit__Summit_Events_Registration__c WHERE Id = :registrationId].summit__Status__c;
     }
 
-    // A user who doesn't own the Registration, like the site guest user
+    // A user who doesn't own the Registration, with the site guest user's permission set. Without it the package's
+    // SummitEventsRegistrationTrigger fails on update (NullPointerException) in this user's context.
     private static User invitee() {
         User u = new User(
             ProfileId = [SELECT Id FROM Profile WHERE Name = 'Standard User'].Id,
@@ -73,6 +74,10 @@ private class InvitationDeclineControllerTest {
         );
         System.runAs(new User(Id = UserInfo.getUserId())) {
             insert u;
+            insert new PermissionSetAssignment(
+                AssigneeId = u.Id,
+                PermissionSetId = [SELECT Id FROM PermissionSet WHERE Name = 'Summit_Events_Registrant_Custom'].Id
+            );
         }
         return u;
     }
@@ -81,14 +86,18 @@ private class InvitationDeclineControllerTest {
     static void declinesInvitationWithoutCreatingRecords() {
         summit__Summit_Events_Registration__c invitation = createRegistration('Invited');
         User testUser = invitee();
+        InvitationDeclineController declineCtrl;
+
+        System.runAs(testUser) {
+            declineCtrl = openDeclinePage(getLinkParameter(invitation));
+            Assert.isFalse(declineCtrl.eventNotFound);
+            Assert.isTrue(declineCtrl.canDecline);
+        }
+        // Read back outside runAs: the invitee itself has no access to Registrations
+        Assert.areEqual('Invited', getStatus(invitation.Id), 'Opening the page must not change the registration');
 
         System.runAs(testUser) {
             Test.startTest();
-            InvitationDeclineController declineCtrl = openDeclinePage(getLinkParameter(invitation));
-            Assert.isFalse(declineCtrl.eventNotFound);
-            Assert.isTrue(declineCtrl.canDecline);
-            Assert.areEqual('Invited', getStatus(invitation.Id), 'Opening the page must not change the registration');
-
             Assert.isNotNull(declineCtrl.declineInvitation());
             Test.stopTest();
         }
