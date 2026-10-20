@@ -46,12 +46,26 @@ No architectural decisions are recorded as accepted in this initial pack.
 
 ### DEC-004 — Personalized invitation links
 
-- **Date:** 2026-10-19
-- **Status:** Proposed
+- **Date:** 2026-10-19, updated 2026-10-20
+- **Status:** Accepted for the decline page (2026-10-20); the rest stays Proposed
 - **Question:** How are invitees securely associated with an existing Registration, including token expiry, revocation, replay and forwarded links?
-- **Decision:** Pending security design.
-- **Affected stories:** US-04, US-05, US-06.
-- **Owner / approver:** TBD.
+- **Options considered:**
+  1. Random token `t`: `SummitEventsInvitationService` issues a random 256-bit token and stores its SHA-256 hash in the unique `Public_Invitation_Token_Hash__c`.
+  2. The package's encrypted registration string `eventInfo`, the same string as the package cancel link. `InvitationLink` copies the package format. Links cannot be revoked short of changing the encryption key.
+- **Decision:** The decline page (`InvitationDecline`, US-08/US-09) identifies the invitee by `t` only. The page looks the Registration up by `hashToken(t)`. The `eventInfo` entry point is removed. Token revocation is out of scope: `Public_Invitation_Revoked__c` was removed on purpose, and that functionality may be dropped (team, 2026-10-20). Invitation emails therefore carry a single link scheme.
+- **Implemented (2026-10-20, branch `US-09-AJ`, for review by Peter and Katarzyna):**
+  - `SummitInvitationQueueable` creates Registrations as `Invited` and issues the link for every `Invited` Registration of the processed Campaign Members, through `SummitEventsInvitationService.getOrCreateLinksForAutomation` (system mode, without sharing). A failure to issue links is logged and keeps the Registrations; a re-run issues the missing links.
+  - Invite Manager: `Public_Invitation_Link__c` and `Public_Invitation_Issued_At__c` are read-only, and `Public_Invitation_Token_Hash__c` is not readable. The plain token stays in the link field, because emails and `Invitation_Decline_Link__c` need it.
+- **Still open:**
+  - A page or controller that takes `t` into the registration flow. `Summit_Events_Public_Invitation_URL` points at the package's `SummitEventsRegister`, which ignores `t`.
+  - Expiry: not in scope for now.
+  - The package's `SummitEventsRegistrationTrigger` throws a NullPointerException on update for users without Summit Events permissions. The user who adds Campaign Members therefore needs Summit Events access, or no link is issued (the error is logged).
+- **Consequences / risks:**
+  - A link cannot be revoked once it is sent. A forwarded link keeps working until the Registration is no longer `Invited`. Clearing `Public_Invitation_Token_Hash__c` by hand still makes the link unusable, as a manual workaround.
+  - The decline page depends on `SummitEventsInvitationService` and the three `Public_Invitation_*` fields. Those are not in the repository yet, only in the sandbox, so the decline-page change waits for that branch.
+- **Affected stories:** US-04, US-05, US-06 (decline), US-09 (decline reason).
+- **Owner / approver:** Team decision reported by Auke Jutjens, 2026-10-20 (decline page only).
+- **Evidence:** Sandbox review 2026-10-20: `SummitEventsInvitationService.hashToken()` and the `Summit_Events_Public_Invitation_URL` label → `summit__SummitEventsRegister`.
 
 ### DEC-005 — Decline experience
 
