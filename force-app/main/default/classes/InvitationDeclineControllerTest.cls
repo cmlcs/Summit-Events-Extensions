@@ -1,19 +1,16 @@
 /**
- * Tests for US-08 (decline an invitation): InvitationDeclineController and InvitationLink.
+ * Tests for US-08 (decline an invitation) and US-09 (optional decline reason): InvitationDeclineController.
  *
  * Requires the 'Invited' and 'Declined' values on summit__Summit_Events_Registration__c.summit__Status__c in the
  * target org; the package does not ship them.
  */
 @IsTest
 private class InvitationDeclineControllerTest {
-    private static final Integer BULK_SIZE = 600;
+    // Plain invitation token per Registration; only its hash is stored, as SummitEventsInvitationService does
+    private static Map<Id, String> tokens = new Map<Id, String>();
 
     @TestSetup
     static void setup() {
-        summit__Summit_Events_Settings__c settings = summit__Summit_Events_Settings__c.getOrgDefaults();
-        settings.summit__Cookie_Encryption_Key__c = EncodingUtil.base64Encode(Crypto.generateAesKey(256)).substring(0, 32);
-        upsert settings;
-
         summit__Summit_Events__c evt = new summit__Summit_Events__c(Name = 'Decline Test Gala', summit__Event_Name__c = 'Decline Test Gala');
         insert evt;
         insert new summit__Summit_Events_Instance__c(summit__Event__c = evt.Id, summit__Instance_Title__c = 'Decline Test Gala 2026');
@@ -34,25 +31,25 @@ private class InvitationDeclineControllerTest {
             summit__Registrant_Email__c = 'thomas@example.invalid',
             summit__Status__c = status
         );
+        String token = newToken();
+        registration.Public_Invitation_Token_Hash__c = SummitEventsInvitationService.hashToken(token);
         insert registration;
-        InvitationLink.setEncryptedFields(registration);
-        update registration;
+        tokens.put(registration.Id, token);
         return registration;
     }
 
-    // The decline link concatenates both encrypted fields; the platform URL-decodes the parameter once
-    private static String getLinkParameter(summit__Summit_Events_Registration__c registration) {
-        String encrypted = registration.summit__Encrypted_Registration_Id_1__c;
-        if (String.isNotBlank(registration.summit__Encrypted_Registration_Id_2__c)) {
-            encrypted += registration.summit__Encrypted_Registration_Id_2__c;
-        }
-        return EncodingUtil.urlDecode(encrypted, 'UTF-8');
+    private static String newToken() {
+        return EncodingUtil.convertToHex(Crypto.generateAesKey(256));
     }
 
-    private static InvitationDeclineController openDeclinePage(String eventInfo) {
+    private static String getLinkParameter(summit__Summit_Events_Registration__c registration) {
+        return tokens.get(registration.Id);
+    }
+
+    private static InvitationDeclineController openDeclinePage(String token) {
         Test.setCurrentPage(Page.InvitationDecline);
-        if (eventInfo != null) {
-            ApexPages.currentPage().getParameters().put('eventInfo', eventInfo);
+        if (token != null) {
+            ApexPages.currentPage().getParameters().put('t', token);
         }
         return new InvitationDeclineController();
     }
@@ -189,50 +186,48 @@ private class InvitationDeclineControllerTest {
     }
 
     @IsTest
-    static void tokenForAnotherObjectIsRejected() {
-        Contact other = new Contact(LastName = 'Declinetest');
-        insert other;
-        String token = EncodingUtil.urlDecode(InvitationLink.encrypt(other.Id, null, null), 'UTF-8');
+    static void unknownTokenShowsNotFound() {
+        summit__Summit_Events_Registration__c invitation = createRegistration('Invited');
 
-        Test.startTest();
-        Assert.isNull(InvitationLink.decryptRegistrationId(token));
-        Test.stopTest();
+        System.runAs(invitee()) {
+            Test.startTest();
+            InvitationDeclineController declineCtrl = openDeclinePage(newToken());
+            Assert.isTrue(declineCtrl.eventNotFound);
+            declineCtrl.declineInvitation();
+            Test.stopTest();
+        }
+
+        Assert.areEqual('Invited', getStatus(invitation.Id));
     }
 
+    // Tokens are lowercase hex and the hash lookup is case-sensitive
     @IsTest
-    static void linkRoundTripsForBulkInvitations() {
+    static void uppercasedTokenShowsNotFound() {
         summit__Summit_Events_Registration__c invitation = createRegistration('Invited');
-        List<summit__Summit_Events_Registration__c> invitations = new List<summit__Summit_Events_Registration__c>();
-        for (Integer i = 0; i < BULK_SIZE; i++) {
-            invitations.add(invitation.clone(true, false, false, false));
-        }
 
-        Test.startTest();
-        for (summit__Summit_Events_Registration__c registration : invitations) {
-            InvitationLink.setEncryptedFields(registration);
+        System.runAs(invitee()) {
+            Test.startTest();
+            Assert.isTrue(openDeclinePage(getLinkParameter(invitation).toUpperCase()).eventNotFound);
+            Test.stopTest();
         }
-        Test.stopTest();
-
-        Set<String> tokens = new Set<String>();
-        for (summit__Summit_Events_Registration__c registration : invitations) {
-            Assert.areEqual(invitation.Id, InvitationLink.decryptRegistrationId(getLinkParameter(registration)));
-            tokens.add(getLinkParameter(registration));
-        }
-        Assert.areEqual(BULK_SIZE, tokens.size(), 'The managed IV must make every token different');
     }
 
+    // T09: a token only ever reaches its own Registration
     @IsTest
-    static void noEncryptionKeyGivesNoLink() {
-        summit__Summit_Events_Registration__c invitation = createRegistration('Invited');
-        String token = getLinkParameter(invitation);
-        summit__Summit_Events_Settings__c settings = summit__Summit_Events_Settings__c.getOrgDefaults();
-        settings.summit__Cookie_Encryption_Key__c = null;
-        update settings;
+    static void tokenDeclinesOnlyItsOwnInvitation() {
+        summit__Summit_Events_Registration__c thomas = createRegistration('Invited');
+        summit__Summit_Events_Registration__c other = createRegistration('Invited');
 
-        Test.startTest();
-        Assert.isNull(InvitationLink.encrypt(invitation.Id, null, null));
-        Assert.isNull(InvitationLink.decryptRegistrationId(token));
-        Test.stopTest();
+        System.runAs(invitee()) {
+            Test.startTest();
+            InvitationDeclineController declineCtrl = openDeclinePage(getLinkParameter(thomas));
+            Assert.areEqual(thomas.Id, declineCtrl.eventRegistration.Id);
+            declineCtrl.declineInvitation();
+            Test.stopTest();
+        }
+
+        Assert.areEqual('Declined', getStatus(thomas.Id));
+        Assert.areEqual('Invited', getStatus(other.Id));
     }
 
     // US-09: optional decline reason and comment

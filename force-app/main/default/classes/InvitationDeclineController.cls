@@ -3,7 +3,9 @@
  * without completing the registration form.
  *
  * Security model, following the package's SummitEventsCancelReviewController:
- * - The Registration is identified by the encrypted string in the URL (see InvitationLink), never by a plain Id.
+ * - The Registration is identified by the invitation token in the URL (?t=, issued by
+ *   SummitEventsInvitationService), never by a plain Id. Only the token's SHA-256 hash is stored; the page looks
+ *   the Registration up by that hash (DEC-004). Tokens cannot be revoked.
  * - Loading the page changes nothing. Email link scanners open links, so only the confirm button (a POST,
  *   protected by the Visualforce view state) can decline.
  * - The status is re-read before the update, and only summit__Status__c and the optional decline reason and
@@ -17,6 +19,8 @@ public with sharing class InvitationDeclineController {
     public static final Set<String> DECLINABLE_STATUSES = new Set<String>{ 'Invited' };
     // Templates shipped in the package; any other value is a template page in this org
     private static final Set<String> PACKAGE_TEMPLATES = new Set<String>{ 'GeneralSLDS', 'crowncollege2020', 'OPUSTemplate2018', 'CastorTemplate2017' };
+    // SummitEventsInvitationService issues 256-bit tokens as 64 lowercase hex characters
+    private static final Pattern TOKEN_FORMAT = Pattern.compile('[0-9a-f]{64}');
 
     public summit__Summit_Events_Registration__c eventRegistration { get; private set; }
     public summit__Summit_Events__c eventPage { get; private set; }
@@ -27,11 +31,11 @@ public with sharing class InvitationDeclineController {
     public Boolean notDeclinable { get; private set; }
     public String declineReason { get; set; }
     public String declineComment { get; set; }
-    private String eventParameter;
+    private String token;
     private Id registrationId;
 
     public InvitationDeclineController() {
-        eventParameter = ApexPages.currentPage().getParameters().get('eventInfo');
+        token = ApexPages.currentPage().getParameters().get('t');
         eventNotFound = true;
         canDecline = false;
         alreadyDeclined = false;
@@ -40,12 +44,14 @@ public with sharing class InvitationDeclineController {
         eventPage = new summit__Summit_Events__c();
         templateSelected = getTemplate(null);
 
-        Id decryptedId = InvitationLink.decryptRegistrationId(eventParameter);
-        if (decryptedId == null) {
+        // A malformed token can't match, so skip the query; unknown and malformed tokens show the same "not found"
+        if (String.isBlank(token) || !TOKEN_FORMAT.matcher(token).matches()) {
             return;
         }
         RegistrationAccess access = new RegistrationAccess();
-        summit__Summit_Events_Registration__c registration = access.getRegistration(decryptedId);
+        summit__Summit_Events_Registration__c registration = access.getRegistrationByTokenHash(
+            SummitEventsInvitationService.hashToken(token)
+        );
         if (registration == null) {
             return;
         }
@@ -71,7 +77,7 @@ public with sharing class InvitationDeclineController {
             }
         }
         PageReference pg = Page.InvitationDecline;
-        pg.getParameters().put('eventInfo', eventParameter);
+        pg.getParameters().put('t', token);
         pg.setRedirect(true);
         return pg;
     }
@@ -127,10 +133,22 @@ public with sharing class InvitationDeclineController {
 
     /**
      * The guest user does not own the Registration, so reads and the status update run without sharing and in
-     * system mode. The caller has already proved access with the encrypted link; only the status and the
+     * system mode. The caller has already proved access with the invitation token; only the status and the
      * decline reason and comment are written.
      */
     private without sharing class RegistrationAccess {
+
+        // Public_Invitation_Token_Hash__c is unique and case-sensitive, so at most one Registration matches
+        public summit__Summit_Events_Registration__c getRegistrationByTokenHash(String tokenHash) {
+            List<summit__Summit_Events_Registration__c> registrations = [
+                SELECT Id, summit__Status__c, summit__Event__c, summit__Event_Instance_Title__c, summit__Event_Instance_Date_Time_Formatted__c
+                FROM summit__Summit_Events_Registration__c
+                WHERE Public_Invitation_Token_Hash__c = :tokenHash
+                WITH SYSTEM_MODE
+                LIMIT 1
+            ];
+            return registrations.isEmpty() ? null : registrations[0];
+        }
 
         public summit__Summit_Events_Registration__c getRegistration(Id regId) {
             List<summit__Summit_Events_Registration__c> registrations = [
