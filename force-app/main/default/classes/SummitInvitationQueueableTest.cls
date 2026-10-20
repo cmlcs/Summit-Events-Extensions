@@ -129,11 +129,101 @@ private class SummitInvitationQueueableTest {
         System.debug('xxxx TEST ' + member + campaign + contact);
         System.assertEquals(1, countRegistrations(eventId, contact.Id, null), 'One registration should be created for the invited Contact.');
 
-        summit__Summit_Events_Registration__c registration = [SELECT Id, summit__Status__c, Invitation_Key__c, Campaign_Member_Id__c FROM summit__Summit_Events_Registration__c WHERE summit__Event_Instance__c = :eventId AND summit__Contact__c = :contact.Id LIMIT 1];
+        summit__Summit_Events_Registration__c registration = [SELECT Id, summit__Status__c, Invitation_Key__c, Campaign_Member_Id__c, Public_Invitation_Link__c, Public_Invitation_Token_Hash__c FROM summit__Summit_Events_Registration__c WHERE summit__Event_Instance__c = :eventId AND summit__Contact__c = :contact.Id LIMIT 1];
 
-        System.assertEquals('Registered', registration.summit__Status__c);
+        System.assertEquals('Invited', registration.summit__Status__c);
         System.assertEquals(InvitationRegistrationDedupe.buildKey(eventId, contact.Id, null), registration.Invitation_Key__c);
         System.assertEquals(String.valueOf(member.Id), registration.Campaign_Member_Id__c);
+        assertHasInvitationLink(registration);
+    }
+
+    // US-06/US-14: the queueable issues the public invitation link (DEC-004)
+    private static void assertHasInvitationLink(summit__Summit_Events_Registration__c registration) {
+        System.assertNotEquals(null, registration.Public_Invitation_Link__c, 'An Invited Registration must get an invitation link.');
+        String token = registration.Public_Invitation_Link__c.substringAfter('?t=');
+        System.assertEquals(64, token.length());
+        System.assertEquals(SummitEventsInvitationService.hashToken(token), registration.Public_Invitation_Token_Hash__c);
+    }
+
+    private static summit__Summit_Events_Registration__c reloadRegistration(Id registrationId) {
+        return [SELECT Id, summit__Status__c, Public_Invitation_Link__c, Public_Invitation_Token_Hash__c FROM summit__Summit_Events_Registration__c WHERE Id = :registrationId];
+    }
+
+    @IsTest
+    static void testExistingInvitedRegistrationWithoutLinkGetsLink() {
+        Id eventId = createEventInstance();
+        Campaign campaign = createCampaign(eventId);
+        Contact contact = createContact();
+        summit__Summit_Events_Registration__c existing = createExistingRegistration(eventId, contact.Id, null);
+        existing.summit__Status__c = 'Invited';
+        update existing;
+        CampaignMember member = createMember(campaign, contact.Id, null, 'Invited');
+
+        Test.startTest();
+        System.enqueueJob(new SummitInvitationQueueable(new Set<Id>{ member.Id }));
+        Test.stopTest();
+
+        assertHasInvitationLink(reloadRegistration(existing.Id));
+    }
+
+    @IsTest
+    static void testExistingRegisteredRegistrationGetsNoLink() {
+        Id eventId = createEventInstance();
+        Campaign campaign = createCampaign(eventId);
+        Contact contact = createContact();
+        summit__Summit_Events_Registration__c existing = createExistingRegistration(eventId, contact.Id, null);
+        CampaignMember member = createMember(campaign, contact.Id, null, 'Invited');
+
+        Test.startTest();
+        System.enqueueJob(new SummitInvitationQueueable(new Set<Id>{ member.Id }));
+        Test.stopTest();
+
+        System.assertEquals(null, reloadRegistration(existing.Id).Public_Invitation_Link__c, 'Only Invited Registrations get a link.');
+    }
+
+    @IsTest
+    static void testLinkFailureKeepsRegistration() {
+        Id eventId = createEventInstance();
+        Campaign campaign = createCampaign(eventId);
+        Contact contact = createContact();
+
+        Test.startTest();
+        SummitEventsInvitationService.baseUrl = 'http://not-https.example.invalid';
+        CampaignMember member = createMember(campaign, contact.Id, null, 'Invited');
+        Test.stopTest();
+
+        summit__Summit_Events_Registration__c registration = [SELECT Id, summit__Status__c, Public_Invitation_Link__c FROM summit__Summit_Events_Registration__c WHERE summit__Contact__c = :contact.Id];
+        System.assertEquals('Invited', registration.summit__Status__c);
+        System.assertEquals(null, registration.Public_Invitation_Link__c);
+    }
+
+    // The 600-invitee Gala scenario: the Campaign Member trigger enqueues one job for the whole insert
+    @IsTest
+    static void testBulkAudienceOf600GetsLinks() {
+        Id eventId = createEventInstance();
+        Campaign campaign = createCampaign(eventId);
+        List<Contact> contacts = new List<Contact>();
+        for (Integer i = 0; i < 600; i++) {
+            contacts.add(new Contact(LastName = 'Gala Guest ' + i));
+        }
+        insert contacts;
+        List<CampaignMember> members = new List<CampaignMember>();
+        for (Contact contact : contacts) {
+            members.add(new CampaignMember(CampaignId = campaign.Id, ContactId = contact.Id, Status = 'Invited'));
+        }
+
+        Test.startTest();
+        insert members;
+        Test.stopTest();
+
+        List<summit__Summit_Events_Registration__c> registrations = [SELECT Public_Invitation_Token_Hash__c FROM summit__Summit_Events_Registration__c WHERE summit__Event_Instance__c = :eventId AND summit__Status__c = 'Invited'];
+        System.assertEquals(600, registrations.size());
+        Set<String> hashes = new Set<String>();
+        for (summit__Summit_Events_Registration__c registration : registrations) {
+            hashes.add(registration.Public_Invitation_Token_Hash__c);
+        }
+        System.assertEquals(false, hashes.contains(null), 'Every invitee must get a link.');
+        System.assertEquals(600, hashes.size(), 'Every invitee must get their own token.');
     }
 
     @IsTest

@@ -5,7 +5,10 @@
  * in the unique Public_Invitation_Token_Hash__c so the page that receives the link can look the Registration up
  * by hash. Links are issued once and then reused; a half-written invitation is never reissued.
  *
- * Runs as the internal user who sends the invitations: sharing, object and field permissions all apply.
+ * getOrCreateLinks runs as the internal user who sends the invitations: sharing, object and field permissions all
+ * apply. getOrCreateLinksForAutomation is for trusted automation (SummitInvitationQueueable): the invitation fields
+ * are read-only for users (DEC-004), so it reads and writes in system mode without sharing. Never call it from
+ * guest-facing code.
  */
 public with sharing class SummitEventsInvitationService {
 
@@ -40,6 +43,40 @@ public with sharing class SummitEventsInvitationService {
      */
     public static Map<Id, String> getOrCreateLinks(Set<Id> registrationIds) {
 
+        checkRegistrationIds(registrationIds);
+        checkPermissions();
+        checkBaseUrl();
+
+        // Lock the Registrations to prevent concurrent generation.
+        List<summit__Summit_Events_Registration__c> registrations = [
+            SELECT Id,
+                   Public_Invitation_Link__c,
+                   Public_Invitation_Token_Hash__c,
+                   Public_Invitation_Issued_At__c
+            FROM summit__Summit_Events_Registration__c
+            WHERE Id IN :registrationIds
+            WITH USER_MODE
+            FOR UPDATE
+        ];
+
+        return issueLinks(registrationIds, registrations, null);
+    }
+
+    /**
+     * Same as getOrCreateLinks, for trusted automation that runs as a user without edit access to the invitation
+     * fields. Same all-or-nothing rule.
+     */
+    public static Map<Id, String> getOrCreateLinksForAutomation(Set<Id> registrationIds) {
+
+        checkRegistrationIds(registrationIds);
+        checkBaseUrl();
+
+        SystemAccess systemAccess = new SystemAccess();
+        return issueLinks(registrationIds, systemAccess.lockRegistrations(registrationIds), systemAccess);
+    }
+
+    private static void checkRegistrationIds(Set<Id> registrationIds) {
+
         if (registrationIds == null ||
             registrationIds.isEmpty() ||
             registrationIds.contains(null)) {
@@ -47,8 +84,9 @@ public with sharing class SummitEventsInvitationService {
                 'Registration ID is required.'
             );
         }
+    }
 
-        checkPermissions();
+    private static void checkBaseUrl() {
 
         // Validate the public URL from the Custom Label.
         if (String.isBlank(baseUrl) ||
@@ -66,18 +104,14 @@ public with sharing class SummitEventsInvitationService {
                 'Invitation URL exceeds field length.'
             );
         }
+    }
 
-        // Lock the Registrations to prevent concurrent generation.
-        List<summit__Summit_Events_Registration__c> registrations = [
-            SELECT Id,
-                   Public_Invitation_Link__c,
-                   Public_Invitation_Token_Hash__c,
-                   Public_Invitation_Issued_At__c
-            FROM summit__Summit_Events_Registration__c
-            WHERE Id IN :registrationIds
-            WITH USER_MODE
-            FOR UPDATE
-        ];
+    // systemAccess is null for the user-mode path
+    private static Map<Id, String> issueLinks(
+        Set<Id> registrationIds,
+        List<summit__Summit_Events_Registration__c> registrations,
+        SystemAccess systemAccess
+    ) {
 
         // Missing and not shared with this user look the same, so neither is revealed.
         if (registrations.size() != registrationIds.size()) {
@@ -139,10 +173,35 @@ public with sharing class SummitEventsInvitationService {
 
         // Save the Registrations.
         if (!registrationsToUpdate.isEmpty()) {
-            update as user registrationsToUpdate;
+            if (systemAccess == null) {
+                update as user registrationsToUpdate;
+            } else {
+                systemAccess.save(registrationsToUpdate);
+            }
         }
 
         return links;
+    }
+
+    // Duplicate detection in SummitInvitationQueueable adopts Registrations the running user may not see
+    private without sharing class SystemAccess {
+
+        public List<summit__Summit_Events_Registration__c> lockRegistrations(Set<Id> registrationIds) {
+            return [
+                SELECT Id,
+                       Public_Invitation_Link__c,
+                       Public_Invitation_Token_Hash__c,
+                       Public_Invitation_Issued_At__c
+                FROM summit__Summit_Events_Registration__c
+                WHERE Id IN :registrationIds
+                WITH SYSTEM_MODE
+                FOR UPDATE
+            ];
+        }
+
+        public void save(List<summit__Summit_Events_Registration__c> registrations) {
+            Database.update(registrations, true, AccessLevel.SYSTEM_MODE);
+        }
     }
 
     // Also needed by the page that resolves an incoming token.

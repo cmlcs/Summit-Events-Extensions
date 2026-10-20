@@ -14,9 +14,6 @@ trigger CampaignMember on CampaignMember (after insert, after update) {
         }
     }
 
-    if (!memberIdsToProcess.isEmpty()) {
-        System.enqueueJob(new SummitInvitationQueueable(memberIdsToProcess));
-    }
     System.debug(LoggingLevel.ERROR,'TRIGGER MEMBER IDS TO PROCESS=' + memberIdsToProcess);
 
     if (!memberIdsToProcess.isEmpty()) {

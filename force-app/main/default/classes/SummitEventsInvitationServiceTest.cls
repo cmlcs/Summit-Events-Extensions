@@ -122,9 +122,14 @@ private class SummitEventsInvitationServiceTest {
         return user;
     }
 
-    // Field access from the real Summit_Events_Invite_Manager permission set, so the tests also check its grants
+    // A sender with edit access to the invitation fields, as getOrCreateLinks (user mode) requires
     private static User newSender() {
-        User user = newMinimumAccessUser('silsend');
+        return newSender('silsend', SENDER_FIELD_ACCESS);
+    }
+
+    // Field access from the real Summit_Events_Invite_Manager permission set, so the tests also check its grants
+    private static User newInviteManager() {
+        User user = newMinimumAccessUser('silinvm');
         System.runAs(new User(Id = UserInfo.getUserId())) {
             PermissionSet objectAccess = newRegistrationAccessPermissionSet('SEIS_Test_Object_Access');
             Id inviteManagerId = [SELECT Id FROM PermissionSet WHERE Name = 'Summit_Events_Invite_Manager' LIMIT 1].Id;
@@ -331,5 +336,78 @@ private class SummitEventsInvitationServiceTest {
             assertFails(registration.Id, 'Insufficient field permissions.');
         }
         Assert.isNull(reload(registration.Id).Public_Invitation_Link__c);
+    }
+
+    // DEC-004: the invitation fields are read-only for the Invite Manager and the token hash is hidden
+    @IsTest
+    static void inviteManagerCanReadLinkButNotWriteOrSeeHash() {
+        summit__Summit_Events_Registration__c registration = insertRegistration();
+
+        System.runAs(newInviteManager()) {
+            Map<String, Schema.SObjectField> fields = Schema.SObjectType.summit__Summit_Events_Registration__c.fields.getMap();
+            Assert.isTrue(fields.get('Public_Invitation_Link__c').getDescribe().isAccessible());
+            Assert.isFalse(fields.get('Public_Invitation_Link__c').getDescribe().isUpdateable());
+            Assert.isFalse(fields.get('Public_Invitation_Token_Hash__c').getDescribe().isAccessible());
+
+            assertFails(registration.Id, 'Insufficient field permissions.');
+        }
+    }
+
+    @IsTest
+    static void automationIssuesLinkForInviteManager() {
+        SummitEventsInvitationService.baseUrl = BASE_URL;
+        summit__Summit_Events_Registration__c registration = insertRegistration();
+        Map<Id, String> links;
+
+        System.runAs(newInviteManager()) {
+            Test.startTest();
+            links = SummitEventsInvitationService.getOrCreateLinksForAutomation(new Set<Id>{ registration.Id });
+            Test.stopTest();
+        }
+
+        summit__Summit_Events_Registration__c stored = reload(registration.Id);
+        Assert.areEqual(stored.Public_Invitation_Link__c, links.get(registration.Id));
+        Assert.isTrue(stored.Public_Invitation_Link__c.startsWith(BASE_URL + '?t='));
+        Assert.areEqual(SummitEventsInvitationService.hashToken(tokenOf(stored.Public_Invitation_Link__c)), stored.Public_Invitation_Token_Hash__c);
+        Assert.isNotNull(stored.Public_Invitation_Issued_At__c);
+    }
+
+    // Without sharing: duplicate detection can adopt Registrations the running user cannot see
+    @IsTest
+    static void automationIssuesLinkForRegistrationNotSharedWithUser() {
+        SummitEventsInvitationService.baseUrl = BASE_URL;
+        summit__Summit_Events_Registration__c registration = insertRegistration();
+
+        System.runAs(newMinimumAccessUser('silnoshr')) {
+            Test.startTest();
+            SummitEventsInvitationService.getOrCreateLinksForAutomation(new Set<Id>{ registration.Id });
+            Test.stopTest();
+        }
+
+        Assert.isNotNull(reload(registration.Id).Public_Invitation_Token_Hash__c);
+    }
+
+    @IsTest
+    static void automationReusesExistingLink() {
+        SummitEventsInvitationService.baseUrl = BASE_URL;
+        summit__Summit_Events_Registration__c registration = insertRegistration();
+        Set<Id> registrationIds = new Set<Id>{ registration.Id };
+
+        Test.startTest();
+        String first = SummitEventsInvitationService.getOrCreateLinksForAutomation(registrationIds).get(registration.Id);
+        String second = SummitEventsInvitationService.getOrCreateLinksForAutomation(registrationIds).get(registration.Id);
+        Test.stopTest();
+
+        Assert.areEqual(first, second);
+    }
+
+    @IsTest
+    static void automationRejectsMissingIds() {
+        try {
+            SummitEventsInvitationService.getOrCreateLinksForAutomation(new Set<Id>());
+            Assert.fail('Expected InvitationException');
+        } catch (SummitEventsInvitationService.InvitationException e) {
+            Assert.areEqual('Registration ID is required.', e.getMessage());
+        }
     }
 }

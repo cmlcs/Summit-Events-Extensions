@@ -37,19 +37,19 @@
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>summit__Summit_Events_Registration__c.Public_Invitation_Issued_At__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>summit__Summit_Events_Registration__c.Public_Invitation_Link__c</field>
         <readable>true</readable>
     </fieldPermissions>
     <fieldPermissions>
-        <editable>true</editable>
+        <editable>false</editable>
         <field>summit__Summit_Events_Registration__c.Public_Invitation_Token_Hash__c</field>
-        <readable>true</readable>
+        <readable>false</readable>
     </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>Summit Events Invite Manager</label>

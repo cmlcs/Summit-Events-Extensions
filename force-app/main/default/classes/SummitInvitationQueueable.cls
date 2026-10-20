@@ -3,6 +3,8 @@ public without sharing class SummitInvitationQueueable implements Queueable {
 
     private Set<Id> campaignMemberIds;
     private static final String CAMPAIGN_INSTANCE_FIELD = 'summit_events_instance__c';
+    // Only Invited Registrations get an invitation link; the decline page only accepts this status (DEC-003)
+    private static final String INVITED_STATUS = 'Invited';
    
     public SummitInvitationQueueable(Set<Id> memberIds) {
         System.debug(LoggingLevel.ERROR, 'QUEUEABLE CONSTRUCTOR INPUT=' + memberIds);
@@ -81,9 +83,12 @@ public without sharing class SummitInvitationQueueable implements Queueable {
 
         Map<Id, summit__Summit_Events_Registration__c>
             registrationsToInsert = new Map<Id, summit__Summit_Events_Registration__c>();
+        // Existing Registrations count too, so a re-run issues links that a failed run did not
+        Set<Id> invitedRegistrationIds = new Set<Id>();
 
         for (Id memberId : resolved.keySet()) {
             InvitationRegistrationDedupe.Result result = resolved.get(memberId);
+            addIfInvited(result, invitedRegistrationIds);
 
             System.debug(LoggingLevel.ERROR, 'DEDUPE RESOLVE'  + ' | memberId=' + memberId + ' | outcome=' + result.outcome + ' | key=' + result.invitationKey + ' | message=' + result.message + ' | registrationId=' + (result.registration == null ? 'null': String.valueOf(result.registration.Id)))            ;
             // Only genuinely new registrations are inserted.
@@ -96,15 +101,14 @@ public without sharing class SummitInvitationQueueable implements Queueable {
             registration.summit__Contact__c = req.contactId;
             registration.summit__Lead__c = req.leadId;
 
-            // Change this value if the package uses a different
-            // valid registration-status picklist value.
-            registration.summit__Status__c = 'Registered';
+            registration.summit__Status__c = INVITED_STATUS;
             registrationsToInsert.put(memberId, registration);
         }
 
         System.debug(LoggingLevel.ERROR,'REGISTRATIONS TO INSERT=' + registrationsToInsert.size());
 
         if (registrationsToInsert.isEmpty()) {
+            issueInvitationLinks(invitedRegistrationIds);
             return;
         }
 
@@ -116,6 +120,33 @@ public without sharing class SummitInvitationQueueable implements Queueable {
         for (Id memberId : insertResults.keySet()) {
             InvitationRegistrationDedupe.Result result = insertResults.get(memberId);
             System.debug(LoggingLevel.ERROR, 'DEDUPE INSERT' + ' | memberId=' + memberId + ' | outcome=' + result.outcome + ' | registrationId=' + (result.registration == null ? 'null' : String.valueOf(result.registration.Id))  + ' | message=' + result.message);
+            addIfInvited(result, invitedRegistrationIds);
+        }
+
+        // 6. Issue the public invitation link (US-06/US-14, DEC-004).
+        issueInvitationLinks(invitedRegistrationIds);
+    }
+
+    private static void addIfInvited(InvitationRegistrationDedupe.Result result, Set<Id> registrationIds) {
+        if (result.registration != null
+            && result.registration.Id != null
+            && result.registration.summit__Status__c == INVITED_STATUS) {
+            registrationIds.add(result.registration.Id);
+        }
+    }
+
+    /**
+     * A link failure must not undo the Registrations: they are kept, the error is logged, and the next run for
+     * these members issues the missing links (existing links are reused, never replaced).
+     */
+    private static void issueInvitationLinks(Set<Id> registrationIds) {
+        if (registrationIds.isEmpty()) {
+            return;
+        }
+        try {
+            SummitEventsInvitationService.getOrCreateLinksForAutomation(registrationIds);
+        } catch (Exception e) {
+            System.debug(LoggingLevel.ERROR, 'INVITATION LINKS FAILED | registrations=' + registrationIds.size() + ' | ' + e.getTypeName() + ': ' + e.getMessage());
         }
     }
 }
