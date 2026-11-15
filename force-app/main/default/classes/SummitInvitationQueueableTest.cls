@@ -48,7 +48,10 @@ private class SummitInvitationQueueableTest {
 
         // System mode: at API 68.0 test DML checks the running user's access, and the test runner may not be a Marketing User
         insert as system campaign;
-        insert as system new CampaignMemberStatus(CampaignId = campaign.Id, Label = 'Invited');
+        // The Campaign_Add_Registration_Statuses flow (US-10) adds Invited to Campaigns linked to an Instance
+        if ([SELECT COUNT() FROM CampaignMemberStatus WHERE CampaignId = :campaign.Id AND Label = 'Invited' WITH SYSTEM_MODE] == 0) {
+            insert as system new CampaignMemberStatus(CampaignId = campaign.Id, Label = 'Invited', SortOrder = 100);
+        }
         System.debug('xxxCreated campaign: ' + campaign.Id);
         System.debug('xxxAdded Campaign Member Status: Invited');
         return campaign;

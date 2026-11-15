@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <actionCalls>
+        <name>Sync_Campaign_Member_Status</name>
+        <label>Sync Campaign Member Status</label>
+        <locationX>176</locationX>
+        <locationY>323</locationY>
+        <actionName>SyncCampaignMemberStatus</actionName>
+        <actionType>apex</actionType>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>registrationId</name>
+            <value>
+                <elementReference>$Record.Id</elementReference>
+            </value>
+        </inputParameters>
+        <nameSegment>SyncCampaignMemberStatus</nameSegment>
+    </actionCalls>
+    <apiVersion>68.0</apiVersion>
+    <description>US-10: copies the Registration status (summit__Status__c) to the linked Campaign Member (Campaign_Member_Id__c). The Registration is the source of truth; a status the Campaign lacks is added first.</description>
+    <environments>Default</environments>
+    <interviewLabel>Registration - Sync Campaign Member Status {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>Registration - Sync Campaign Member Status</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <start>
+        <locationX>50</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>Sync_Campaign_Member_Status</targetReference>
+        </connector>
+        <filterFormula>NOT(ISBLANK({!$Record.Campaign_Member_Id__c})) &amp;&amp; (ISNEW() || ISCHANGED({!$Record.summit__Status__c}) || ISCHANGED({!$Record.Campaign_Member_Id__c}))</filterFormula>
+        <object>summit__Summit_Events_Registration__c</object>
+        <recordTriggerType>CreateAndUpdate</recordTriggerType>
+        <triggerType>RecordAfterSave</triggerType>
+    </start>
+    <status>Active</status>
+</Flow>

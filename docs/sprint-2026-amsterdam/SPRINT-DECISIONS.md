@@ -41,7 +41,9 @@ No architectural decisions are recorded as accepted in this initial pack.
 - **Status:** Proposed
 - **Question:** Can existing Registration statuses represent `Invited` and `Declined`, and which system owns Campaign Member status synchronization?
 - **Decision:** Pending verification of picklists and current behavior.
-- **Affected stories:** US-03, US-05, US-06, US-07.
+- **Evidence (2026-10-20):** In the sandbox, `summit__Status__c` is a restricted picklist with the active values Started, Registered, In Progress, Confirmed, Attended, Cancelled, Rescheduled, No-Show, Invited and Declined.
+- **Proposal (Peter, US-10, 2026-10-20, not accepted):** The Registration owns the status. Campaigns linked to an Event Instance get every active Registration status as a Campaign Member Status, and linked Campaign Members copy the Registration status one way. See [CAMPAIGN-MEMBER-STATUS-SYNC.md](CAMPAIGN-MEMBER-STATUS-SYNC.md).
+- **Affected stories:** US-03, US-05, US-06, US-07, board US-10.
 - **Owner / approver:** TBD.
 
 ### DEC-004 — Personalized invitation links
